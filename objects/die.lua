@@ -65,7 +65,7 @@ function Die:updateRoll(dt)
         self:roll()
         return true
     end
-    self.value = RNG.random(1, 6)
+    self.value = math.random(1, 6)
     return false
 end
 

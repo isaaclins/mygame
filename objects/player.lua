@@ -1,5 +1,4 @@
 local Class = require("objects/class")
-local RNG = require("functions/rng")
 local Player = Class:extend()
 
 function Player:init()
@@ -19,7 +18,7 @@ end
 function Player:rollAllDice()
     for _, die in ipairs(self.dice_pool) do
         if not die.locked then
-            die:startRoll(0.4 + RNG.random() * 0.3)
+            die:startRoll(0.4 + math.random() * 0.3)
         end
     end
 end
@@ -29,7 +28,7 @@ function Player:rerollUnlocked()
     local any_unlocked = false
     for _, die in ipairs(self.dice_pool) do
         if not die.locked then
-            die:startRoll(0.3 + RNG.random() * 0.2)
+            die:startRoll(0.3 + math.random() * 0.2)
             any_unlocked = true
         end
     end

@@ -1,0 +1,105 @@
+name: Build & Release
+
+on:
+  push:
+    branches: [release]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zip curl
+
+      - name: Create .love archive
+        run: make love
+
+      - name: Download LÖVE for macOS
+        run: |
+          mkdir -p build/.love-cache/macos
+          curl -sL -o build/.love-cache/macos/_love.zip \
+            "https://github.com/love2d/love/releases/download/11.5/love-11.5-macos.zip"
+          unzip -qo build/.love-cache/macos/_love.zip -d build/.love-cache/macos
+          rm build/.love-cache/macos/_love.zip
+
+      - name: Download LÖVE for Windows
+        run: |
+          mkdir -p build/.love-cache/windows
+          curl -sL -o build/.love-cache/windows/_love.zip \
+            "https://github.com/love2d/love/releases/download/11.5/love-11.5-win64.zip"
+          unzip -qo build/.love-cache/windows/_love.zip -d build/.love-cache/windows
+          rm build/.love-cache/windows/_love.zip
+
+      - name: Download LÖVE for Linux
+        run: |
+          mkdir -p build/.love-cache/linux
+          curl -sL -o build/.love-cache/linux/love.AppImage \
+            "https://github.com/love2d/love/releases/download/11.5/love-11.5-x86_64.AppImage"
+          chmod +x build/.love-cache/linux/love.AppImage
+
+      - name: Build macOS zip
+        run: |
+          mkdir -p build/macos
+          cp -R build/.love-cache/macos/love.app build/macos/mygame.app
+          cp build/mygame.love "build/macos/mygame.app/Contents/Resources/"
+          cd build/macos && zip -9 -r -y ../mygame-macos.zip mygame.app > /dev/null
+
+      - name: Build Windows zip
+        run: |
+          mkdir -p build/windows/mygame
+          cat "build/.love-cache/windows/love-11.5-win64/love.exe" build/mygame.love \
+            > "build/windows/mygame/mygame.exe"
+          cp build/.love-cache/windows/love-11.5-win64/*.dll build/windows/mygame/
+          cp build/.love-cache/windows/love-11.5-win64/license.txt build/windows/mygame/ 2>/dev/null || true
+          cd build/windows && zip -9 -r ../mygame-windows.zip mygame > /dev/null
+
+      - name: Build Linux zip
+        run: |
+          mkdir -p build/linux/mygame
+          cp build/mygame.love build/linux/mygame/mygame.love
+          cp build/.love-cache/linux/love.AppImage build/linux/mygame/love.AppImage
+          printf '#!/bin/sh\nSCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"\nexec "$SCRIPT_DIR/love.AppImage" "$SCRIPT_DIR/mygame.love" "$@"\n' \
+            > build/linux/mygame/mygame.sh
+          chmod +x build/linux/mygame/mygame.sh
+          chmod +x build/linux/mygame/love.AppImage
+          cd build/linux && zip -9 -r ../mygame-linux.zip mygame > /dev/null
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mygame-macos
+          path: build/mygame-macos.zip
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mygame-windows
+          path: build/mygame-windows.zip
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mygame-linux
+          path: build/mygame-linux.zip
+
+      - name: Upload .love artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mygame-love
+          path: build/mygame.love
+
+      - name: Create GitHub Release (tagged pushes only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/mygame-macos.zip
+            build/mygame-windows.zip
+            build/mygame-linux.zip
+            build/mygame.love
