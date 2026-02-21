@@ -31,7 +31,7 @@ function Hand:upgrade()
 end
 
 function Hand:getUpgradeCost()
-    return 5 + self.upgrade_level * 5
+    return 5 + self.upgrade_level * self.upgrade_level * 5
 end
 
 function Hand:getDisplayScore()

@@ -106,29 +106,41 @@ function ShopState:drawHandUpgrades(player, W, H)
         local iy = section_y + 40 + (i - 1) * 58
         if iy + 50 > section_y + section_h then break end
 
+        local maxed = upgrade.hand.upgrade_level >= upgrade.hand.max_upgrade
+        local live_cost = upgrade.hand:getUpgradeCost()
         local item_x = section_x + 10
         local item_w = section_w - 20
-        local hovered = UI.pointInRect(mx, my, item_x, iy, item_w, 50)
+        local hovered = not maxed and UI.pointInRect(mx, my, item_x, iy, item_w, 50)
 
         UI.setColor(hovered and UI.colors.panel_hover or UI.colors.panel_light)
         UI.roundRect("fill", item_x, iy, item_w, 50, 6)
 
         love.graphics.setFont(Fonts.get(14))
-        UI.setColor(UI.colors.text)
-        love.graphics.print(upgrade.hand.name .. " +" .. (upgrade.hand.upgrade_level + 1), item_x + 8, iy + 6)
+        if maxed then
+            UI.setColor(UI.colors.text_dark)
+            love.graphics.print(upgrade.hand.name .. " MAX", item_x + 8, iy + 6)
+        else
+            UI.setColor(UI.colors.text)
+            love.graphics.print(upgrade.hand.name .. " +" .. (upgrade.hand.upgrade_level + 1), item_x + 8, iy + 6)
+        end
 
         love.graphics.setFont(Fonts.get(12))
         UI.setColor(UI.colors.text_dim)
         love.graphics.print(upgrade.hand:getDisplayScore(), item_x + 8, iy + 26)
 
-        if not shop.free_choice_used then
+        if maxed then
+            UI.setColor(UI.colors.text_dark)
+            love.graphics.setFont(Fonts.get(14))
+            love.graphics.printf("MAXED", item_x, iy + 8, item_w - 8, "right")
+        elseif not shop.free_choice_used then
             UI.setColor(UI.colors.free_badge)
             love.graphics.setFont(Fonts.get(14))
             love.graphics.printf("FREE", item_x, iy + 8, item_w - 8, "right")
         else
-            UI.setColor(UI.colors.accent)
+            local can_afford = player.currency >= live_cost
+            UI.setColor(can_afford and UI.colors.accent or UI.colors.red)
             love.graphics.setFont(Fonts.get(14))
-            love.graphics.printf("$" .. upgrade.cost, item_x, iy + 8, item_w - 8, "right")
+            love.graphics.printf("$" .. live_cost, item_x, iy + 8, item_w - 8, "right")
         end
 
         self._hand_upgrade_buttons[i] = { x = item_x, y = iy, w = item_w, h = 50, hovered = hovered }

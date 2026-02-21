@@ -53,6 +53,12 @@ function GameOver:draw(player)
         love.graphics.printf("Items: " .. table.concat(item_names, ", "), W * 0.15, stats_y + 130, W * 0.7, "center")
     end
 
+    if player.seed and #player.seed > 0 then
+        love.graphics.setFont(Fonts.get(16))
+        UI.setColor(UI.colors.accent_dim)
+        love.graphics.printf("Seed: " .. player.seed, 0, stats_y + 160, W, "center")
+    end
+
     local btn_w, btn_h = 260, 56
     self._retry_hovered = UI.drawButton(
         "PLAY AGAIN", (W - btn_w) / 2, H * 0.75, btn_w, btn_h,

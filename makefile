@@ -15,20 +15,28 @@ LOVE_LINUX_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSIO
 
 EXCLUDE := -x './$(BUILD_DIR)/*' './.git/*' './.vscode/*' './makefile' './README.md' './.DS_Store' './.gitignore'
 
-.PHONY: build build-macos build-windows build-linux love run dev clean clean-all help
+.PHONY: build build-all build-macos build-windows build-linux love run dev clean clean-all help
 
 # ─── Help (default) ──────────────────────────────────────────────────
 help:
 	@echo ""
-	@echo "  make build           Build for current OS (auto-detected)"
-	@echo "  make build-macos     Build macOS .app bundle"
-	@echo "  make build-windows   Build Windows .exe + DLLs"
-	@echo "  make build-linux     Build Linux fused AppImage"
+	@echo "  make build           Build zip for current OS (auto-detected)"
+	@echo "  make build-all       Build zips for all platforms"
+	@echo "  make build-macos     Build macOS .app zip"
+	@echo "  make build-windows   Build Windows .exe zip"
+	@echo "  make build-linux     Build Linux AppImage zip"
 	@echo "  make love            Create .love archive only"
 	@echo "  make run             Run with love"
 	@echo "  make dev             Watch for changes & auto-restart"
 	@echo "  make clean           Remove build outputs"
 	@echo "  make clean-all       Remove entire build directory"
+	@echo ""
+
+# ─── Build all platforms ─────────────────────────────────────────────
+build-all: build-macos build-windows build-linux
+	@echo ""
+	@echo "All platform zips:"
+	@ls -lh $(BUILD_DIR)/$(GAME_NAME)-*.zip
 	@echo ""
 
 # ─── Build for current OS ────────────────────────────────────────────
@@ -76,26 +84,37 @@ build-macos: love | $(LOVE_CACHE)/macos/love.app
 	@rm -rf $(BUILD_DIR)/macos/$(GAME_NAME).app
 	@cp -R $(LOVE_CACHE)/macos/love.app $(BUILD_DIR)/macos/$(GAME_NAME).app
 	@cp $(LOVE_FILE) "$(BUILD_DIR)/macos/$(GAME_NAME).app/Contents/Resources/"
-	@echo "[macos] -> $(BUILD_DIR)/macos/$(GAME_NAME).app"
+	@echo "[macos] Zipping ..."
+	@cd $(BUILD_DIR)/macos && zip -9 -r -y ../$(GAME_NAME)-macos.zip $(GAME_NAME).app > /dev/null
+	@echo "[macos] -> $(BUILD_DIR)/$(GAME_NAME)-macos.zip"
 
 # ─── Windows build ───────────────────────────────────────────────────
 build-windows: love | $(LOVE_CACHE)/windows/love-$(LOVE_VERSION)-win64
 	@echo "[windows] Building $(GAME_NAME).exe ..."
-	@mkdir -p $(BUILD_DIR)/windows
+	@mkdir -p $(BUILD_DIR)/windows/$(GAME_NAME)
 	@cat "$(LOVE_CACHE)/windows/love-$(LOVE_VERSION)-win64/love.exe" $(LOVE_FILE) \
-		> "$(BUILD_DIR)/windows/$(GAME_NAME).exe"
-	@cp $(LOVE_CACHE)/windows/love-$(LOVE_VERSION)-win64/*.dll $(BUILD_DIR)/windows/
-	@cp $(LOVE_CACHE)/windows/love-$(LOVE_VERSION)-win64/license.txt $(BUILD_DIR)/windows/ 2>/dev/null || true
-	@echo "[windows] -> $(BUILD_DIR)/windows/"
+		> "$(BUILD_DIR)/windows/$(GAME_NAME)/$(GAME_NAME).exe"
+	@cp $(LOVE_CACHE)/windows/love-$(LOVE_VERSION)-win64/*.dll $(BUILD_DIR)/windows/$(GAME_NAME)/
+	@cp $(LOVE_CACHE)/windows/love-$(LOVE_VERSION)-win64/license.txt $(BUILD_DIR)/windows/$(GAME_NAME)/ 2>/dev/null || true
+	@echo "[windows] Zipping ..."
+	@cd $(BUILD_DIR)/windows && zip -9 -r ../$(GAME_NAME)-windows.zip $(GAME_NAME) > /dev/null
+	@echo "[windows] -> $(BUILD_DIR)/$(GAME_NAME)-windows.zip"
 
 # ─── Linux build ─────────────────────────────────────────────────────
 build-linux: love | $(LOVE_CACHE)/linux/love.AppImage
-	@echo "[linux] Building $(GAME_NAME).AppImage ..."
+	@echo "[linux] Building $(GAME_NAME) for Linux ..."
 	@mkdir -p $(BUILD_DIR)/linux
-	@cat $(LOVE_CACHE)/linux/love.AppImage $(LOVE_FILE) \
-		> $(BUILD_DIR)/linux/$(GAME_NAME).AppImage
-	@chmod +x $(BUILD_DIR)/linux/$(GAME_NAME).AppImage
-	@echo "[linux] -> $(BUILD_DIR)/linux/$(GAME_NAME).AppImage"
+	@rm -rf $(BUILD_DIR)/linux/$(GAME_NAME)
+	@mkdir -p $(BUILD_DIR)/linux/$(GAME_NAME)
+	@cp $(LOVE_FILE) $(BUILD_DIR)/linux/$(GAME_NAME)/$(GAME_NAME).love
+	@cp $(LOVE_CACHE)/linux/love.AppImage $(BUILD_DIR)/linux/$(GAME_NAME)/love.AppImage
+	@printf '#!/bin/sh\nSCRIPT_DIR="$$(cd "$$(dirname "$$0")" && pwd)"\nexec "$$SCRIPT_DIR/love.AppImage" "$$SCRIPT_DIR/%s.love" "$$@"\n' "$(GAME_NAME)" \
+		> $(BUILD_DIR)/linux/$(GAME_NAME)/$(GAME_NAME).sh
+	@chmod +x $(BUILD_DIR)/linux/$(GAME_NAME)/$(GAME_NAME).sh
+	@chmod +x $(BUILD_DIR)/linux/$(GAME_NAME)/love.AppImage
+	@echo "[linux] Zipping ..."
+	@cd $(BUILD_DIR)/linux && zip -9 -r ../$(GAME_NAME)-linux.zip $(GAME_NAME) > /dev/null
+	@echo "[linux] -> $(BUILD_DIR)/$(GAME_NAME)-linux.zip"
 
 # ─── Run ─────────────────────────────────────────────────────────────
 run:
@@ -133,7 +152,7 @@ dev:
 
 # ─── Clean ───────────────────────────────────────────────────────────
 clean:
-	@rm -rf $(LOVE_FILE) $(BUILD_DIR)/macos $(BUILD_DIR)/windows $(BUILD_DIR)/linux
+	@rm -rf $(LOVE_FILE) $(BUILD_DIR)/macos $(BUILD_DIR)/windows $(BUILD_DIR)/linux $(BUILD_DIR)/$(GAME_NAME)-*.zip
 	@echo "Cleaned build outputs (cached LOVE downloads preserved)."
 
 clean-all:

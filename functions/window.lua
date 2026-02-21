@@ -1,14 +1,18 @@
--- on game focus
+local SaveLoad = require("functions/saveload")
+
+_G.game_save_hook = nil
+
 function love.focus(f)
-	if not f then
-		print("LOST FOCUS")
-	else
-		print("GAINED FOCUS")
-	end
+    if not f then
+        if _G.game_save_hook then
+            _G.game_save_hook()
+        end
+    end
 end
 
--- on game quit
-
 function love.quit()
-	print("Thanks for playing! Come back soon!")
+    if _G.game_save_hook then
+        _G.game_save_hook()
+    end
+    print("Thanks for playing! Come back soon!")
 end

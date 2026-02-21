@@ -1,4 +1,5 @@
 local Class = require("objects/class")
+local RNG = require("functions/rng")
 local Shop = Class:extend()
 
 function Shop:init()
@@ -29,7 +30,7 @@ function Shop:generate(player, all_dice_types, all_items)
         table.insert(available, dt)
     end
     for i = 1, math.min(3, #available) do
-        local idx = math.random(1, #available)
+        local idx = RNG.random(1, #available)
         table.insert(self.dice_inventory, {
             die = available[idx]:clone(),
             cost = 8 + available[idx].upgrade_level * 4,
@@ -52,7 +53,7 @@ function Shop:generate(player, all_dice_types, all_items)
         end
     end
     for i = 1, math.min(3, #avail_items) do
-        local idx = math.random(1, #avail_items)
+        local idx = RNG.random(1, #avail_items)
         table.insert(self.items_inventory, avail_items[idx])
         table.remove(avail_items, idx)
     end
@@ -62,19 +63,27 @@ function Shop:buyHandUpgrade(player, upgrade_index)
     local upgrade = self.hand_upgrades[upgrade_index]
     if not upgrade then return false, "Invalid upgrade" end
 
+    if upgrade.hand.upgrade_level >= upgrade.hand.max_upgrade then
+        return false, "Already maxed!"
+    end
+
+    local live_cost = upgrade.hand:getUpgradeCost()
+
     if not self.free_choice_used then
         self.free_choice_used = true
         player.free_choice_used = true
         upgrade.hand:upgrade()
+        upgrade.cost = upgrade.hand:getUpgradeCost()
         return true, "Free upgrade applied!"
     end
 
-    if player.currency < upgrade.cost then
+    if player.currency < live_cost then
         return false, "Not enough currency"
     end
 
-    player.currency = player.currency - upgrade.cost
+    player.currency = player.currency - live_cost
     upgrade.hand:upgrade()
+    upgrade.cost = upgrade.hand:getUpgradeCost()
     return true, "Upgrade purchased!"
 end
 

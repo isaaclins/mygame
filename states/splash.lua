@@ -1,14 +1,17 @@
 local UI = require("functions/ui")
 local Fonts = require("functions/fonts")
+local SaveLoad = require("functions/saveload")
 
 local Splash = {}
 
 local title_y_offset = 0
 local time_elapsed = 0
 local floating_dice = {}
+local has_save = false
 
 function Splash:init()
     time_elapsed = 0
+    has_save = SaveLoad.hasSave()
     floating_dice = {}
     for i = 1, 12 do
         table.insert(floating_dice, {
@@ -54,15 +57,25 @@ function Splash:draw()
 
     local btn_w, btn_h = 260, 56
     local btn_x = (W - btn_w) / 2
-    local btn_y_start = H * 0.52
+    local btn_y = H * 0.48
+
+    if has_save then
+        self._continue_hovered = UI.drawButton(
+            "CONTINUE", btn_x, btn_y, btn_w, btn_h,
+            { font = Fonts.get(26), color = UI.colors.accent, hover_color = { 1.0, 0.90, 0.20, 1 } }
+        )
+        btn_y = btn_y + 68
+    else
+        self._continue_hovered = false
+    end
 
     self._new_game_hovered = UI.drawButton(
-        "NEW GAME", btn_x, btn_y_start, btn_w, btn_h,
+        "NEW GAME", btn_x, btn_y, btn_w, btn_h,
         { font = Fonts.get(26), color = UI.colors.green, hover_color = { 0.25, 0.85, 0.45, 1 } }
     )
 
     self._exit_hovered = UI.drawButton(
-        "EXIT", btn_x, btn_y_start + 76, btn_w, btn_h,
+        "EXIT", btn_x, btn_y + 68, btn_w, btn_h,
         { font = Fonts.get(26), color = UI.colors.red, hover_color = { 0.95, 0.30, 0.30, 1 } }
     )
 
@@ -73,7 +86,9 @@ end
 
 function Splash:mousepressed(x, y, button)
     if button == 1 then
-        if self._new_game_hovered then
+        if self._continue_hovered then
+            return "continue_game"
+        elseif self._new_game_hovered then
             return "start_game"
         elseif self._exit_hovered then
             return "exit"
@@ -84,6 +99,9 @@ end
 
 function Splash:keypressed(key)
     if key == "return" or key == "space" then
+        if has_save then
+            return "continue_game"
+        end
         return "start_game"
     elseif key == "escape" then
         return "exit"

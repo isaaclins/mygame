@@ -1,16 +1,17 @@
 local Boss = require("objects/boss")
+local RNG = require("functions/rng")
 
 local function createBosses()
     return {
         Boss:new({
             name = "The Lockdown",
-            description = "Locks your first die for the entire round",
+            description = "Locks a random die for the entire round",
             icon = "X",
             modifier = function(self, context)
                 if context and context.player and #context.player.dice_pool > 0 then
-                    local idx = math.random(1, #context.player.dice_pool)
+                    local idx = RNG.random(1, #context.player.dice_pool)
                     context.player.dice_pool[idx].locked = true
-                    context.player.dice_pool[idx].value = math.random(1, 6)
+                    context.player.dice_pool[idx].value = RNG.random(1, 6)
                     context.locked_by_boss = idx
                 end
             end,
@@ -23,7 +24,7 @@ local function createBosses()
         }),
         Boss:new({
             name = "The Inverter",
-            description = "All dice values are inverted (1↔6, 2↔5, 3↔4)",
+            description = "All dice values are inverted (1/6, 2/5, 3/4)",
             icon = "~",
             modifier = function(self, context)
                 if context and context.player then
@@ -48,7 +49,7 @@ local function createBosses()
             revert = function(self, context)
                 if context and context.collector_active and context.player then
                     local Die = require("objects/die")
-                    local idx = math.random(1, #context.player.dice_pool)
+                    local idx = RNG.random(1, #context.player.dice_pool)
                     context.player.dice_pool[idx] = Die:new({
                         name = "Vanilla Die",
                         color = "black",

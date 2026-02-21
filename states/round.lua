@@ -10,6 +10,11 @@ local score_display_timer = 0
 local round_score = 0
 local round_hand = nil
 local round_matched = {}
+local round_base_score = 0
+local round_dice_sum = 0
+local round_multiplier = 0
+local round_bonus = 0
+local round_mult_bonus = 0
 local currency_earned = 0
 local message = ""
 local message_timer = 0
@@ -17,6 +22,10 @@ local wild_selecting = false
 local wild_die_index = nil
 local boss_context = nil
 local dice_ability_results = {}
+local preview_hand = nil
+local preview_score = 0
+local preview_bonus = 0
+local preview_mult_bonus = 0
 
 local die_colors_map = {
     black = UI.colors.die_black,
@@ -74,6 +83,7 @@ function Round:update(dt, player)
             end
 
             sub_state = "choosing"
+            self:updatePreview(player)
         end
     elseif sub_state == "rerolling" then
         local all_done = player:updateDiceRolls(dt)
@@ -86,6 +96,7 @@ function Round:update(dt, player)
                 end
             end
             sub_state = "choosing"
+            self:updatePreview(player)
         end
     elseif sub_state == "scoring" then
         score_display_timer = score_display_timer + dt
@@ -101,6 +112,7 @@ function Round:draw(player, boss)
     self:drawTopBar(player, boss, W)
     self:drawDice(player, W, H)
     self:drawHandReference(player, W, H)
+    self:drawScorePreview(player, W, H)
     self:drawActions(player, W, H)
 
     if sub_state == "pre_roll" then
@@ -119,6 +131,109 @@ function Round:draw(player, boss)
         love.graphics.setFont(Fonts.get(18))
         love.graphics.printf(message, 0, H * 0.45, W, "center")
     end
+end
+
+function Round:updatePreview(player)
+    if not player or #player.dice_pool == 0 then return end
+    local values = player:getDiceValues()
+    local context = {
+        player = player,
+        dice_pool = player.dice_pool,
+        scoring = true,
+        bonus = 0,
+        mult_bonus = 0,
+    }
+
+    if not (boss_context and boss_context.suppress_abilities) then
+        for _, die in ipairs(player.dice_pool) do
+            if die.die_type == "glass" and die.ability then
+                context.bonus = context.bonus + 10 + die.upgrade_level * 5
+            elseif die.ability and die.die_type ~= "echo" then
+                die:triggerAbility(context)
+            end
+        end
+    end
+
+    local saved_triggers = {}
+    for i, item in ipairs(player.items) do
+        saved_triggers[i] = item.triggered_this_round
+    end
+    player:applyItems(context)
+    for i, item in ipairs(player.items) do
+        item.triggered_this_round = saved_triggers[i]
+    end
+
+    local hand, score, matched = Scoring.findBestHand(values, player.hands)
+    preview_hand = hand
+    preview_bonus = context.bonus or 0
+    preview_mult_bonus = context.mult_bonus or 0
+
+    score = score + preview_bonus
+    if preview_mult_bonus > 0 then
+        score = math.floor(score * (1 + preview_mult_bonus))
+    end
+    preview_score = score
+end
+
+function Round:drawScorePreview(player, W, H)
+    if sub_state ~= "choosing" or not preview_hand then return end
+
+    local values = player:getDiceValues()
+    local _, matched = Scoring.detectHand(values)
+    matched = matched or {}
+    local dice_sum = 0
+    for _, v in ipairs(matched) do
+        dice_sum = dice_sum + v
+    end
+
+    local has_bonus = preview_bonus > 0
+    local has_mult = preview_mult_bonus > 0
+    local extra_lines = (has_bonus and 1 or 0) + (has_mult and 1 or 0)
+
+    local panel_x = 10
+    local panel_y = 70
+    local panel_w = 220
+    local panel_h = 148 + extra_lines * 18
+
+    UI.drawPanel(panel_x, panel_y, panel_w, panel_h)
+
+    love.graphics.setFont(Fonts.get(14))
+    UI.setColor(UI.colors.text_dim)
+    love.graphics.printf("SCORE PREVIEW", panel_x, panel_y + 8, panel_w, "center")
+
+    love.graphics.setFont(Fonts.get(18))
+    UI.setColor(UI.colors.accent)
+    love.graphics.printf(preview_hand.name, panel_x, panel_y + 28, panel_w, "center")
+
+    love.graphics.setFont(Fonts.get(13))
+    local ly = panel_y + 54
+    UI.setColor(UI.colors.text_dim)
+    love.graphics.printf("Base: " .. preview_hand.base_score, panel_x + 12, ly, panel_w - 24, "left")
+    ly = ly + 17
+    love.graphics.printf("Dice: +" .. dice_sum, panel_x + 12, ly, panel_w - 24, "left")
+    ly = ly + 17
+    love.graphics.printf("Mult: ×" .. string.format("%.1f", preview_hand.multiplier), panel_x + 12, ly, panel_w - 24, "left")
+    ly = ly + 17
+
+    if has_bonus then
+        UI.setColor(UI.colors.green)
+        love.graphics.printf("Bonus: +" .. preview_bonus, panel_x + 12, ly, panel_w - 24, "left")
+        ly = ly + 17
+    end
+    if has_mult then
+        UI.setColor(UI.colors.green)
+        love.graphics.printf("Item mult: ×" .. string.format("%.1f", 1 + preview_mult_bonus), panel_x + 12, ly, panel_w - 24, "left")
+        ly = ly + 17
+    end
+
+    ly = ly + 2
+    love.graphics.setLineWidth(1)
+    UI.setColor(UI.colors.text_dark)
+    love.graphics.line(panel_x + 12, ly, panel_x + panel_w - 12, ly)
+
+    love.graphics.setFont(Fonts.get(24))
+    UI.setColor(UI.colors.text)
+    love.graphics.printf(tostring(preview_score), panel_x, ly + 6, panel_w, "center")
 end
 
 function Round:drawTopBar(player, boss, W)
@@ -141,6 +256,12 @@ function Round:drawTopBar(player, boss, W)
     local reroll_text = "Rerolls: " .. player.rerolls_remaining
     UI.setColor(UI.colors.text_dim)
     love.graphics.printf(reroll_text, 0, 22, W * 0.78, "right")
+
+    if player.seed and #player.seed > 0 then
+        love.graphics.setFont(Fonts.get(11))
+        UI.setColor(UI.colors.text_dark)
+        love.graphics.printf("Seed: " .. player.seed, 0, 42, W * 0.5, "center")
+    end
 end
 
 function Round:drawDice(player, W, H)
@@ -242,47 +363,59 @@ end
 function Round:drawScoring(player, W, H)
     if score_display_timer < 0.5 then return end
 
-    local panel_w, panel_h = 400, 200
+    local panel_w, panel_h = 420, 250
     local px = (W - panel_w) / 2
-    local py = H * 0.25
+    local py = H * 0.2
 
     UI.drawPanel(px, py, panel_w, panel_h, { border = UI.colors.accent, border_width = 2 })
 
     love.graphics.setFont(Fonts.get(28))
     UI.setColor(UI.colors.accent)
-    love.graphics.printf(round_hand and round_hand.name or "No Hand", px, py + 20, panel_w, "center")
+    love.graphics.printf(round_hand and round_hand.name or "No Hand", px, py + 14, panel_w, "center")
 
-    love.graphics.setFont(Fonts.get(38))
-    local display_score = math.floor(UI.lerp(0, round_score, UI.clamp((score_display_timer - 0.5) / 0.8, 0, 1)))
+    love.graphics.setFont(Fonts.get(14))
+    UI.setColor(UI.colors.text_dim)
+    local breakdown = "(" .. round_base_score .. " + " .. round_dice_sum .. ") × " .. string.format("%.1f", round_multiplier)
+    if round_bonus > 0 then
+        breakdown = breakdown .. " + " .. round_bonus .. " bonus"
+    end
+    if round_mult_bonus > 0 then
+        breakdown = breakdown .. " × " .. string.format("%.1f", 1 + round_mult_bonus) .. " item mult"
+    end
+    love.graphics.printf(breakdown, px, py + 48, panel_w, "center")
+
+    love.graphics.setFont(Fonts.get(42))
+    local t = UI.clamp((score_display_timer - 0.5) / 0.8, 0, 1)
+    local display_score = math.floor(UI.lerp(0, round_score, t))
     UI.setColor(UI.colors.text)
-    love.graphics.printf(tostring(display_score), px, py + 65, panel_w, "center")
+    love.graphics.printf(tostring(display_score), px, py + 72, panel_w, "center")
 
     love.graphics.setFont(Fonts.get(18))
     local target = player:getTargetScore()
     if round_score >= target then
         UI.setColor(UI.colors.green)
-        love.graphics.printf("TARGET MET! +" .. currency_earned .. " currency", px, py + 120, panel_w, "center")
+        love.graphics.printf("TARGET MET! +" .. currency_earned .. " currency", px, py + 128, panel_w, "center")
     else
         UI.setColor(UI.colors.red)
-        love.graphics.printf("TARGET MISSED (" .. target .. " needed)", px, py + 120, panel_w, "center")
+        love.graphics.printf("TARGET MISSED (" .. target .. " needed)", px, py + 128, panel_w, "center")
     end
 
     if #dice_ability_results > 0 then
-        love.graphics.setFont(Fonts.get(14))
+        love.graphics.setFont(Fonts.get(13))
         UI.setColor(UI.colors.text_dim)
         local ability_text = table.concat(dice_ability_results, " | ")
-        love.graphics.printf(ability_text, px, py + 150, panel_w, "center")
+        love.graphics.printf(ability_text, px + 10, py + 160, panel_w - 20, "center")
     end
 
     if score_display_timer > 2.0 then
         if round_score >= target then
             self._continue_hovered = UI.drawButton(
-                "CONTINUE", (W - 200) / 2, py + panel_h + 20, 200, 48,
+                "CONTINUE", (W - 200) / 2, py + panel_h + 16, 200, 48,
                 { font = Fonts.get(20), color = UI.colors.green }
             )
         else
             self._game_over_hovered = UI.drawButton(
-                "GAME OVER", (W - 200) / 2, py + panel_h + 20, 200, 48,
+                "GAME OVER", (W - 200) / 2, py + panel_h + 16, 200, 48,
                 { font = Fonts.get(20), color = UI.colors.red }
             )
         end
@@ -348,9 +481,17 @@ function Round:calculateScore(player)
     round_hand = hand
     round_matched = matched
 
-    score = score + (context.bonus or 0)
-    if (context.mult_bonus or 0) > 0 then
-        score = math.floor(score * (1 + context.mult_bonus))
+    local dice_sum = 0
+    for _, v in ipairs(matched) do dice_sum = dice_sum + v end
+    round_base_score = hand.base_score
+    round_dice_sum = dice_sum
+    round_multiplier = hand.multiplier
+    round_bonus = context.bonus or 0
+    round_mult_bonus = context.mult_bonus or 0
+
+    score = score + round_bonus
+    if round_mult_bonus > 0 then
+        score = math.floor(score * (1 + round_mult_bonus))
     end
 
     round_score = score
@@ -368,6 +509,7 @@ function Round:mousepressed(x, y, button, player)
                 player.dice_pool[wild_die_index].wild_choice = v
                 wild_selecting = false
                 wild_die_index = nil
+                self:updatePreview(player)
                 return nil
             end
         end
@@ -398,6 +540,7 @@ function Round:mousepressed(x, y, button, player)
                 end
 
                 player:lockDie(i)
+                self:updatePreview(player)
                 return nil
             end
         end
@@ -439,6 +582,12 @@ function Round:mousepressed(x, y, button, player)
 end
 
 function Round:keypressed(key, player)
+    if wild_selecting and key == "escape" then
+        wild_selecting = false
+        wild_die_index = nil
+        return "handled"
+    end
+
     if sub_state == "choosing" then
         if key == "r" and player.rerolls_remaining > 0 then
             player:rerollUnlocked()
@@ -460,6 +609,7 @@ function Round:keypressed(key, player)
                     message_timer = 1.5
                 else
                     player:lockDie(idx)
+                    self:updatePreview(player)
                 end
             end
         end

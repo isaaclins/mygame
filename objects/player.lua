@@ -1,11 +1,13 @@
 local Class = require("objects/class")
+local RNG = require("functions/rng")
 local Player = Class:extend()
 
 function Player:init()
     self.dice_pool = {}
     self.hands = {}
     self.items = {}
-    self.max_rerolls = 3
+    self.base_rerolls = 3
+    self.max_rerolls = self.base_rerolls
     self.rerolls_remaining = self.max_rerolls
     self.currency = 0
     self.round = 1
@@ -17,7 +19,7 @@ end
 function Player:rollAllDice()
     for _, die in ipairs(self.dice_pool) do
         if not die.locked then
-            die:startRoll(0.4 + math.random() * 0.3)
+            die:startRoll(0.4 + RNG.random() * 0.3)
         end
     end
 end
@@ -27,7 +29,7 @@ function Player:rerollUnlocked()
     local any_unlocked = false
     for _, die in ipairs(self.dice_pool) do
         if not die.locked then
-            die:startRoll(0.3 + math.random() * 0.2)
+            die:startRoll(0.3 + RNG.random() * 0.2)
             any_unlocked = true
         end
     end
@@ -100,10 +102,15 @@ function Player:resetItemTriggers()
 end
 
 function Player:startNewRound()
+    self.max_rerolls = self.base_rerolls
     self.rerolls_remaining = self.max_rerolls
     self.free_choice_used = false
     self:unlockAllDice()
     self:resetItemTriggers()
+
+    for _, die in ipairs(self.dice_pool) do
+        die.wild_choice = nil
+    end
 
     for _, item in ipairs(self.items) do
         if item.trigger_type == "passive" then

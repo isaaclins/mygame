@@ -1,4 +1,5 @@
 local Die = require("objects/die")
+local RNG = require("functions/rng")
 
 local function createDiceTypes()
     return {
@@ -28,7 +29,7 @@ local function createDiceTypes()
             ability = function(self, context)
                 if context and context.scoring then
                     context.bonus = (context.bonus or 0) + 10 + self.upgrade_level * 5
-                    if math.random() < 0.2 then
+                    if RNG.random() < 0.2 then
                         self.die_type = "vanilla"
                         self.ability = nil
                         self.ability_name = "Broken"
@@ -82,7 +83,7 @@ local function createDiceTypes()
             color = "blue",
             die_type = "mirror",
             ability_name = "Reflection",
-            ability_desc = "Flips value after rolling (1↔6, 2↔5, 3↔4).",
+            ability_desc = "Flips value after rolling (1/6, 2/5, 3/4).",
             glow_color = { 0.5, 0.3, 0.9, 0.6 },
         }),
         Die:new({
@@ -99,7 +100,7 @@ local function createDiceTypes()
                         if d ~= self then table.insert(others, d) end
                     end
                     if #others > 0 then
-                        local target = others[math.random(1, #others)]
+                        local target = others[RNG.random(1, #others)]
                         self.value = target.value
                         return "echo"
                     end

@@ -1,4 +1,5 @@
 local Class = require("objects/class")
+local RNG = require("functions/rng")
 local Die = Class:extend()
 
 function Die:init(opts)
@@ -26,7 +27,7 @@ function Die:roll()
     end
 
     if self.die_type == "wild" then
-        self.value = self.wild_choice or math.random(1, 6)
+        self.value = self.wild_choice or RNG.random(1, 6)
         return self.value
     end
 
@@ -34,7 +35,7 @@ function Die:roll()
     for _, w in ipairs(self.weights) do
         total = total + w
     end
-    local r = math.random() * total
+    local r = RNG.random() * total
     local cumulative = 0
     for i, w in ipairs(self.weights) do
         cumulative = cumulative + w
@@ -64,7 +65,7 @@ function Die:updateRoll(dt)
         self:roll()
         return true
     end
-    self.value = math.random(1, 6)
+    self.value = RNG.random(1, 6)
     return false
 end
 
