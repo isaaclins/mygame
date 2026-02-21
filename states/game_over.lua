@@ -1,74 +1,191 @@
 local UI = require("functions/ui")
 local Fonts = require("functions/fonts")
+local Tween = require("functions/tween")
+local Particles = require("functions/particles")
 
 local GameOver = {}
 
 local time_elapsed = 0
+local title_anim = { y = 0, scale = 1, alpha = 0 }
+local stats_anims = {}
+local seed_anim = { alpha = 0 }
+local btn_anims = {}
+local shake = { x = 0, y = 0, intensity = 0 }
+local drift_spawned = false
 
 function GameOver:init()
     time_elapsed = 0
+    drift_spawned = false
+
+    title_anim = { y = -200, scale = 2.0, alpha = 0 }
+    Tween.to(title_anim, 0.7, { y = 0, scale = 1.0, alpha = 1 }, "outElastic", function()
+        shake.intensity = 10
+    end)
+
+    stats_anims = {}
+    for i = 1, 5 do
+        stats_anims[i] = { alpha = 0, y_off = 20, count_val = 0 }
+    end
+
+    seed_anim = { alpha = 0 }
+
+    btn_anims = {}
+    for i = 1, 2 do
+        btn_anims[i] = { alpha = 0, y_off = 30 }
+    end
 end
 
 function GameOver:update(dt)
     time_elapsed = time_elapsed + dt
+
+    if shake.intensity > 0 then
+        shake.intensity = shake.intensity * (1 - dt * 6)
+        shake.x = (math.random() - 0.5) * shake.intensity * 2
+        shake.y = (math.random() - 0.5) * shake.intensity * 2
+        if shake.intensity < 0.3 then
+            shake.intensity = 0
+            shake.x = 0
+            shake.y = 0
+        end
+    end
+
+    for i, sa in ipairs(stats_anims) do
+        local reveal_at = 0.8 + (i - 1) * 0.3
+        if time_elapsed > reveal_at and sa.alpha < 1 then
+            sa.alpha = math.min(1, sa.alpha + dt * 4)
+            sa.y_off = sa.y_off * math.max(0, 1 - dt * 8)
+        end
+    end
+
+    local seed_reveal = 0.8 + #stats_anims * 0.3
+    if time_elapsed > seed_reveal then
+        seed_anim.alpha = math.min(1, seed_anim.alpha + dt * 3)
+    end
+
+    local btn_reveal = seed_reveal + 0.4
+    for i, ba in ipairs(btn_anims) do
+        local at = btn_reveal + (i - 1) * 0.15
+        if time_elapsed > at and ba.alpha < 1 then
+            ba.alpha = math.min(1, ba.alpha + dt * 4)
+            ba.y_off = ba.y_off * math.max(0, 1 - dt * 8)
+        end
+    end
+
+    if not drift_spawned and time_elapsed > 0.5 then
+        drift_spawned = true
+        local W, H = love.graphics.getDimensions()
+        Particles.drift(0, 0, W, H, { 0.9, 0.15, 0.15, 0.25 }, 40)
+    end
 end
 
 function GameOver:draw(player)
     local W, H = love.graphics.getDimensions()
 
-    UI.setColor(UI.colors.bg)
+    love.graphics.push()
+    love.graphics.translate(shake.x, shake.y)
+
+    love.graphics.setColor(0.03, 0.03, 0.06, 1)
     love.graphics.rectangle("fill", 0, 0, W, H)
 
-    love.graphics.setColor(0.9, 0.15, 0.15, 0.08)
-    for i = 1, 8 do
-        local r = 50 + i * 40 + math.sin(time_elapsed + i) * 20
-        love.graphics.circle("fill", W / 2, H * 0.35, r)
+    love.graphics.setColor(0.9, 0.15, 0.15, 0.04)
+    for i = 1, 6 do
+        local r = 40 + i * 50 + math.sin(time_elapsed * 0.5 + i) * 15
+        love.graphics.circle("fill", W / 2, H * 0.3, r)
     end
 
+    love.graphics.push()
+    love.graphics.translate(W / 2, H * 0.18 + title_anim.y + 26)
+    love.graphics.scale(title_anim.scale, title_anim.scale)
     love.graphics.setFont(Fonts.get(52))
-    UI.setColor(UI.colors.red)
-    love.graphics.printf("GAME OVER", 0, H * 0.18, W, "center")
 
-    love.graphics.setFont(Fonts.get(22))
-    UI.setColor(UI.colors.text)
+    love.graphics.setColor(0.9, 0.12, 0.12, title_anim.alpha * 0.2)
+    for dx = -2, 2 do
+        for dy = -2, 2 do
+            if dx ~= 0 or dy ~= 0 then
+                love.graphics.printf("GAME OVER", dx - W / 2, dy - 26, W, "center")
+            end
+        end
+    end
+
+    love.graphics.setColor(0.9, 0.15, 0.15, title_anim.alpha)
+    love.graphics.printf("GAME OVER", -W / 2, -26, W, "center")
+    love.graphics.pop()
 
     local stats_y = H * 0.38
-    love.graphics.printf("Round Reached: " .. player.round, 0, stats_y, W, "center")
-    love.graphics.printf("Final Currency: $" .. player.currency, 0, stats_y + 36, W, "center")
-    love.graphics.printf("Dice Pool:", 0, stats_y + 72, W, "center")
+    love.graphics.setFont(Fonts.get(22))
 
-    local die_names = {}
-    for _, die in ipairs(player.dice_pool) do
-        table.insert(die_names, die.name)
+    local sa1 = stats_anims[1]
+    if sa1.alpha > 0 then
+        local count_t = math.min(1, (time_elapsed - 1.1) / 0.5)
+        local display_round = math.floor(UI.lerp(0, player.round, math.max(0, count_t)))
+        love.graphics.setColor(1, 1, 1, sa1.alpha)
+        love.graphics.printf("Round Reached: " .. display_round, 0, stats_y + sa1.y_off, W, "center")
     end
-    love.graphics.setFont(Fonts.get(18))
-    UI.setColor(UI.colors.text_dim)
-    love.graphics.printf(table.concat(die_names, ", "), W * 0.15, stats_y + 100, W * 0.7, "center")
 
-    if #player.items > 0 then
+    local sa2 = stats_anims[2]
+    if sa2.alpha > 0 then
+        local count_t = math.min(1, (time_elapsed - 1.4) / 0.5)
+        local display_currency = math.floor(UI.lerp(0, player.currency, math.max(0, count_t)))
+        love.graphics.setColor(1, 1, 1, sa2.alpha)
+        love.graphics.printf("Final Currency: $" .. display_currency, 0, stats_y + 36 + sa2.y_off, W, "center")
+    end
+
+    local sa3 = stats_anims[3]
+    if sa3.alpha > 0 then
+        love.graphics.setColor(1, 1, 1, sa3.alpha)
+        love.graphics.printf("Dice Pool:", 0, stats_y + 72 + sa3.y_off, W, "center")
+    end
+
+    local sa4 = stats_anims[4]
+    if sa4.alpha > 0 then
+        local die_names = {}
+        for _, die in ipairs(player.dice_pool) do
+            table.insert(die_names, die.name)
+        end
+        love.graphics.setFont(Fonts.get(18))
+        love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], sa4.alpha)
+        love.graphics.printf(table.concat(die_names, ", "), W * 0.15, stats_y + 100 + sa4.y_off, W * 0.7, "center")
+    end
+
+    local sa5 = stats_anims[5]
+    if sa5 and sa5.alpha > 0 and #player.items > 0 then
         local item_names = {}
         for _, item in ipairs(player.items) do
             table.insert(item_names, item.name)
         end
-        love.graphics.printf("Items: " .. table.concat(item_names, ", "), W * 0.15, stats_y + 130, W * 0.7, "center")
+        love.graphics.setFont(Fonts.get(18))
+        love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], sa5.alpha)
+        love.graphics.printf("Items: " .. table.concat(item_names, ", "), W * 0.15, stats_y + 130 + sa5.y_off, W * 0.7, "center")
     end
 
-    if player.seed and #player.seed > 0 then
+    if seed_anim.alpha > 0 and player.seed and #player.seed > 0 then
         love.graphics.setFont(Fonts.get(16))
-        UI.setColor(UI.colors.accent_dim)
-        love.graphics.printf("Seed: " .. player.seed, 0, stats_y + 160, W, "center")
+        love.graphics.setColor(UI.colors.accent_dim[1], UI.colors.accent_dim[2], UI.colors.accent_dim[3], seed_anim.alpha)
+        love.graphics.printf("Seed: " .. player.seed, 0, stats_y + 170, W, "center")
     end
 
     local btn_w, btn_h = 260, 56
-    self._retry_hovered = UI.drawButton(
-        "PLAY AGAIN", (W - btn_w) / 2, H * 0.75, btn_w, btn_h,
-        { font = Fonts.get(24), color = UI.colors.blue }
-    )
+    local ba1 = btn_anims[1]
+    if ba1.alpha > 0 then
+        self._retry_hovered = UI.drawButton(
+            "PLAY AGAIN", (W - btn_w) / 2, H * 0.78 + ba1.y_off, btn_w, btn_h,
+            { font = Fonts.get(24), color = UI.colors.blue }
+        )
+    else
+        self._retry_hovered = false
+    end
 
-    self._exit_hovered = UI.drawButton(
-        "EXIT", (W - btn_w) / 2, H * 0.75 + 70, btn_w, btn_h,
-        { font = Fonts.get(24), color = UI.colors.red, hover_color = { 0.95, 0.30, 0.30, 1 } }
-    )
+    local ba2 = btn_anims[2]
+    if ba2.alpha > 0 then
+        self._exit_hovered = UI.drawButton(
+            "EXIT", (W - btn_w) / 2, H * 0.78 + 70 + ba2.y_off, btn_w, btn_h,
+            { font = Fonts.get(24), color = UI.colors.red, hover_color = { 0.95, 0.30, 0.30, 1 } }
+        )
+    else
+        self._exit_hovered = false
+    end
+
+    love.graphics.pop()
 end
 
 function GameOver:mousepressed(x, y, button)
@@ -83,6 +200,7 @@ function GameOver:mousepressed(x, y, button)
 end
 
 function GameOver:keypressed(key)
+    if time_elapsed < 2.0 then return nil end
     if key == "return" or key == "space" then
         return "restart"
     elseif key == "escape" then

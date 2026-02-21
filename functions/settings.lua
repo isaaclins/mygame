@@ -7,6 +7,8 @@ local defaults = {
     master_volume = 1.0,
     pause_on_unfocus = true,
     screenshake = true,
+    show_fps = false,
+    vsync = true,
 }
 
 local current = {}

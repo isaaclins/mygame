@@ -89,7 +89,7 @@ function SettingsState:draw()
         love.graphics.rectangle("fill", 0, 0, W, H)
     end
 
-    local panel_w, panel_h = 420, 380
+    local panel_w, panel_h = 420, 460
     local px = (W - panel_w) / 2
     local py = (H - panel_h) / 2
 
@@ -120,6 +120,14 @@ function SettingsState:draw()
 
     local t2 = drawToggle("Screen Shake", content_x, row_y, content_w, Settings.get("screenshake"), "screenshake")
     table.insert(self._toggles, t2)
+    row_y = row_y + 40
+
+    local t3 = drawToggle("Show FPS", content_x, row_y, content_w, Settings.get("show_fps"), "show_fps")
+    table.insert(self._toggles, t3)
+    row_y = row_y + 40
+
+    local t4 = drawToggle("VSync", content_x, row_y, content_w, Settings.get("vsync"), "vsync")
+    table.insert(self._toggles, t4)
     row_y = row_y + 50
 
     local btn_w, btn_h = 140, 44

@@ -1,6 +1,9 @@
 local UI = require("functions/ui")
 local Scoring = require("functions/scoring")
 local Fonts = require("functions/fonts")
+local Tween = require("functions/tween")
+local Particles = require("functions/particles")
+local Toast = require("functions/toast")
 
 local Round = {}
 
@@ -16,8 +19,6 @@ local round_multiplier = 0
 local round_bonus = 0
 local round_mult_bonus = 0
 local currency_earned = 0
-local message = ""
-local message_timer = 0
 local wild_selecting = false
 local wild_die_index = nil
 local boss_context = nil
@@ -27,6 +28,16 @@ local preview_score = 0
 local preview_bonus = 0
 local preview_mult_bonus = 0
 
+local die_anims = {}
+local pre_roll_anim = { scale = 0, alpha = 0, target_count = 0 }
+local score_panel_anim = { alpha = 0, scale = 0.8 }
+local preview_panel_anim = { x_off = -240, alpha = 0 }
+local hand_ref_anim = { x_off = 240, alpha = 0 }
+local scoring_shake = { x = 0, y = 0, intensity = 0 }
+local score_countup = { value = 0 }
+local shown_preview = false
+local shown_hand_ref = false
+
 local die_colors_map = {
     black = UI.colors.die_black,
     blue  = UI.colors.die_blue,
@@ -34,19 +45,33 @@ local die_colors_map = {
     red   = UI.colors.die_red,
 }
 
+local function resetDieAnims(player)
+    die_anims = {}
+    for i = 1, #player.dice_pool do
+        die_anims[i] = {
+            hover_scale = 1,
+            y_off = 0,
+            lock_flash = 0,
+            bounce = 0,
+            pop_scale = 1,
+        }
+    end
+end
+
 function Round:init(player, boss)
     sub_state = "pre_roll"
-    pre_roll_timer = 1.0
+    pre_roll_timer = 1.2
     score_display_timer = 0
     round_score = 0
     round_hand = nil
     round_matched = {}
     currency_earned = 0
-    message = ""
-    message_timer = 0
     wild_selecting = false
     wild_die_index = nil
     dice_ability_results = {}
+    preview_hand = nil
+    shown_preview = false
+    shown_hand_ref = false
 
     player:startNewRound()
 
@@ -54,13 +79,54 @@ function Round:init(player, boss)
     if boss then
         boss:applyModifier(boss_context)
     end
+
+    resetDieAnims(player)
+
+    pre_roll_anim = { scale = 2.0, alpha = 0, target_count = 0 }
+    Tween.to(pre_roll_anim, 0.5, { scale = 1.0, alpha = 1 }, "outElastic")
+
+    score_panel_anim = { alpha = 0, scale = 0.8 }
+    preview_panel_anim = { x_off = -240, alpha = 0 }
+    hand_ref_anim = { x_off = 240, alpha = 0 }
+    scoring_shake = { x = 0, y = 0, intensity = 0 }
+    score_countup = { value = 0 }
 end
 
 function Round:update(dt, player)
-    message_timer = math.max(0, message_timer - dt)
+    if scoring_shake.intensity > 0 then
+        scoring_shake.intensity = scoring_shake.intensity * (1 - dt * 8)
+        scoring_shake.x = (math.random() - 0.5) * scoring_shake.intensity * 2
+        scoring_shake.y = (math.random() - 0.5) * scoring_shake.intensity * 2
+        if scoring_shake.intensity < 0.3 then
+            scoring_shake.intensity = 0
+            scoring_shake.x = 0
+            scoring_shake.y = 0
+        end
+    end
+
+    local mx, my = love.mouse.getPosition()
+    local W, H = love.graphics.getDimensions()
+    local count = #player.dice_pool
+    if count > 0 then
+        local layout = getDiceLayout(count, W, H)
+        for i, da in ipairs(die_anims) do
+            local dx, dy = getDiePosition(layout, i, count)
+            local hovered = UI.pointInRect(mx, my, dx, dy, layout.die_size, layout.die_size)
+            local target_scale = hovered and 1.08 or 1.0
+            local target_y = hovered and -4 or 0
+            da.hover_scale = da.hover_scale + (target_scale - da.hover_scale) * math.min(1, 10 * dt)
+            da.y_off = da.y_off + (target_y - da.y_off) * math.min(1, 10 * dt)
+            da.lock_flash = math.max(0, da.lock_flash - dt * 4)
+            da.bounce = da.bounce * math.max(0, 1 - dt * 6)
+            da.pop_scale = da.pop_scale + (1.0 - da.pop_scale) * math.min(1, 8 * dt)
+        end
+    end
 
     if sub_state == "pre_roll" then
         pre_roll_timer = pre_roll_timer - dt
+        local target = player:getTargetScore()
+        local progress = 1 - math.max(0, pre_roll_timer / 1.2)
+        pre_roll_anim.target_count = math.floor(target * math.min(1, progress * 2))
         if pre_roll_timer <= 0 then
             sub_state = "rolling"
             player:rollAllDice()
@@ -70,28 +136,38 @@ function Round:update(dt, player)
         if all_done and not player:anyDiceRolling() then
             if boss_context and boss_context.invert_dice then
                 for _, die in ipairs(player.dice_pool) do
-                    if not die.locked then
-                        die.value = 7 - die.value
-                    end
+                    if not die.locked then die.value = 7 - die.value end
                 end
             end
-
             for _, die in ipairs(player.dice_pool) do
                 if die.die_type == "echo" and die.ability then
                     die:triggerAbility({ dice_pool = player.dice_pool })
                 end
             end
 
+            for i, da in ipairs(die_anims) do
+                da.bounce = 6
+                da.pop_scale = 1.12
+            end
+
             sub_state = "choosing"
             self:updatePreview(player)
+            self:slideInPanels()
         end
     elseif sub_state == "rerolling" then
         local all_done = player:updateDiceRolls(dt)
         if all_done and not player:anyDiceRolling() then
             if boss_context and boss_context.invert_dice then
                 for _, die in ipairs(player.dice_pool) do
-                    if not die.locked then
-                        die.value = 7 - die.value
+                    if not die.locked then die.value = 7 - die.value end
+                end
+            end
+            for i, die in ipairs(player.dice_pool) do
+                if not die.locked then
+                    local da = die_anims[i]
+                    if da then
+                        da.bounce = 5
+                        da.pop_scale = 1.1
                     end
                 end
             end
@@ -103,8 +179,24 @@ function Round:update(dt, player)
     end
 end
 
+function Round:slideInPanels()
+    if not shown_preview then
+        shown_preview = true
+        preview_panel_anim = { x_off = -240, alpha = 0 }
+        Tween.to(preview_panel_anim, 0.4, { x_off = 0, alpha = 1 }, "outCubic")
+    end
+    if not shown_hand_ref then
+        shown_hand_ref = true
+        hand_ref_anim = { x_off = 240, alpha = 0 }
+        Tween.to(hand_ref_anim, 0.4, { x_off = 0, alpha = 1 }, "outCubic")
+    end
+end
+
 function Round:draw(player, boss)
     local W, H = love.graphics.getDimensions()
+
+    love.graphics.push()
+    love.graphics.translate(scoring_shake.x, scoring_shake.y)
 
     UI.setColor(UI.colors.bg)
     love.graphics.rectangle("fill", 0, 0, W, H)
@@ -125,12 +217,7 @@ function Round:draw(player, boss)
         self:drawWildSelector(W, H)
     end
 
-    if message_timer > 0 then
-        local alpha = math.min(1, message_timer)
-        love.graphics.setColor(1, 1, 1, alpha)
-        love.graphics.setFont(Fonts.get(18))
-        love.graphics.printf(message, 0, H * 0.45, W, "center")
-    end
+    love.graphics.pop()
 end
 
 function Round:updatePreview(player)
@@ -177,62 +264,63 @@ end
 
 function Round:drawScorePreview(player, W, H)
     if sub_state ~= "choosing" or not preview_hand then return end
+    if preview_panel_anim.alpha < 0.01 then return end
 
     local values = player:getDiceValues()
     local _, matched = Scoring.detectHand(values)
     matched = matched or {}
     local dice_sum = 0
-    for _, v in ipairs(matched) do
-        dice_sum = dice_sum + v
-    end
+    for _, v in ipairs(matched) do dice_sum = dice_sum + v end
 
     local has_bonus = preview_bonus > 0
     local has_mult = preview_mult_bonus > 0
     local extra_lines = (has_bonus and 1 or 0) + (has_mult and 1 or 0)
 
-    local panel_x = 10
+    local panel_x = 10 + preview_panel_anim.x_off
     local panel_y = 70
     local panel_w = 220
-    local panel_h = 148 + extra_lines * 18
+    local panel_h = 152 + extra_lines * 18
 
+    love.graphics.setColor(1, 1, 1, preview_panel_anim.alpha)
     UI.drawPanel(panel_x, panel_y, panel_w, panel_h)
 
-    love.graphics.setFont(Fonts.get(14))
-    UI.setColor(UI.colors.text_dim)
+    love.graphics.setFont(Fonts.get(12))
+    love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], preview_panel_anim.alpha)
     love.graphics.printf("SCORE PREVIEW", panel_x, panel_y + 8, panel_w, "center")
 
     love.graphics.setFont(Fonts.get(18))
-    UI.setColor(UI.colors.accent)
-    love.graphics.printf(preview_hand.name, panel_x, panel_y + 28, panel_w, "center")
+    local shimmer = 0.8 + 0.2 * math.sin(love.timer.getTime() * 3)
+    love.graphics.setColor(UI.colors.accent[1] * shimmer, UI.colors.accent[2] * shimmer, UI.colors.accent[3], preview_panel_anim.alpha)
+    love.graphics.printf(preview_hand.name, panel_x, panel_y + 26, panel_w, "center")
 
     love.graphics.setFont(Fonts.get(13))
-    local ly = panel_y + 54
-    UI.setColor(UI.colors.text_dim)
+    local ly = panel_y + 52
+    love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], preview_panel_anim.alpha * 0.9)
     love.graphics.printf("Base: " .. preview_hand.base_score, panel_x + 12, ly, panel_w - 24, "left")
     ly = ly + 17
     love.graphics.printf("Dice: +" .. dice_sum, panel_x + 12, ly, panel_w - 24, "left")
     ly = ly + 17
-    love.graphics.printf("Mult: ×" .. string.format("%.1f", preview_hand.multiplier), panel_x + 12, ly, panel_w - 24, "left")
+    love.graphics.printf("Mult: x" .. string.format("%.1f", preview_hand.multiplier), panel_x + 12, ly, panel_w - 24, "left")
     ly = ly + 17
 
     if has_bonus then
-        UI.setColor(UI.colors.green)
+        love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], preview_panel_anim.alpha)
         love.graphics.printf("Bonus: +" .. preview_bonus, panel_x + 12, ly, panel_w - 24, "left")
         ly = ly + 17
     end
     if has_mult then
-        UI.setColor(UI.colors.green)
-        love.graphics.printf("Item mult: ×" .. string.format("%.1f", 1 + preview_mult_bonus), panel_x + 12, ly, panel_w - 24, "left")
+        love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], preview_panel_anim.alpha)
+        love.graphics.printf("Item mult: x" .. string.format("%.1f", 1 + preview_mult_bonus), panel_x + 12, ly, panel_w - 24, "left")
         ly = ly + 17
     end
 
     ly = ly + 2
     love.graphics.setLineWidth(1)
-    UI.setColor(UI.colors.text_dark)
+    love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], preview_panel_anim.alpha * 0.6)
     love.graphics.line(panel_x + 12, ly, panel_x + panel_w - 12, ly)
 
     love.graphics.setFont(Fonts.get(24))
-    UI.setColor(UI.colors.text)
+    love.graphics.setColor(1, 1, 1, preview_panel_anim.alpha)
     love.graphics.printf(tostring(preview_score), panel_x, ly + 6, panel_w, "center")
 end
 
@@ -264,7 +352,7 @@ function Round:drawTopBar(player, boss, W)
     end
 end
 
-local function getDiceLayout(count, W, H)
+function getDiceLayout(count, W, H)
     local left_margin = 240
     local right_margin = 240
     local avail_w = W - left_margin - right_margin
@@ -285,7 +373,7 @@ local function getDiceLayout(count, W, H)
     }
 end
 
-local function getDiePosition(layout, i, count)
+function getDiePosition(layout, i, count)
     local row = math.floor((i - 1) / layout.per_row)
     local col = (i - 1) % layout.per_row
     local items_in_row = math.min(layout.per_row, count - row * layout.per_row)
@@ -299,15 +387,27 @@ end
 function Round:drawDice(player, W, H)
     local count = #player.dice_pool
     local layout = getDiceLayout(count, W, H)
-
     local mx, my = love.mouse.getPosition()
 
     for i, die in ipairs(player.dice_pool) do
         local dx, dy = getDiePosition(layout, i, count)
-        local hovered = UI.pointInRect(mx, my, dx, dy, layout.die_size, layout.die_size)
+        local da = die_anims[i] or { hover_scale = 1, y_off = 0, lock_flash = 0, bounce = 0, pop_scale = 1 }
+        local hovered = UI.pointInRect(mx, my, dx - 4, dy - 4, layout.die_size + 8, layout.die_size + 8)
         local dot_color = die_colors_map[die.color] or UI.colors.die_black
 
-        UI.drawDie(dx, dy, layout.die_size, die.value, dot_color, nil, die.locked, hovered, die.glow_color)
+        local scale = da.hover_scale * da.pop_scale
+        local s = layout.die_size * scale
+        local cx = dx + layout.die_size / 2
+        local cy = dy + layout.die_size / 2
+        local draw_x = cx - s / 2
+        local draw_y = cy - s / 2 + da.y_off + math.sin(love.timer.getTime() * 12 + i) * da.bounce
+
+        UI.drawDie(draw_x, draw_y, s, die.value, dot_color, nil, die.locked, hovered, die.glow_color)
+
+        if da.lock_flash > 0 then
+            love.graphics.setColor(1, 0.3, 0.3, da.lock_flash * 0.3)
+            UI.roundRect("fill", draw_x, draw_y, s, s, s * 0.15)
+        end
 
         love.graphics.setFont(Fonts.get(layout.label_font))
         UI.setColor(UI.colors.text_dim)
@@ -340,13 +440,16 @@ local hand_examples = {
 }
 
 function Round:drawHandReference(player, W, H)
-    local panel_x = W - 230
+    if hand_ref_anim.alpha < 0.01 then return end
+
+    local panel_x = W - 230 + hand_ref_anim.x_off
     local panel_y = 70
     local panel_w = 220
     local line_h = #player.hands > 12 and 18 or 22
     local font_size = #player.hands > 12 and 11 or 13
     local panel_h = #player.hands * line_h + 20
 
+    love.graphics.setColor(1, 1, 1, hand_ref_anim.alpha)
     UI.drawPanel(panel_x, panel_y, panel_w, panel_h)
     love.graphics.setFont(Fonts.get(font_size))
 
@@ -358,17 +461,17 @@ function Round:drawHandReference(player, W, H)
         local is_hovered = UI.pointInRect(mx, my, panel_x, y, panel_w, line_h)
 
         if is_hovered then
-            love.graphics.setColor(1, 1, 1, 0.05)
+            love.graphics.setColor(1, 1, 1, 0.06 * hand_ref_anim.alpha)
             UI.roundRect("fill", panel_x + 4, y - 1, panel_w - 8, line_h, 3)
             hovered_hand = hand
         end
 
         if round_hand and hand.name == round_hand.name then
-            UI.setColor(UI.colors.accent)
+            love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], hand_ref_anim.alpha)
         elseif is_hovered then
-            UI.setColor(UI.colors.text)
+            love.graphics.setColor(1, 1, 1, hand_ref_anim.alpha)
         else
-            UI.setColor(UI.colors.text_dim)
+            love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], hand_ref_anim.alpha)
         end
         love.graphics.setFont(Fonts.get(font_size))
         love.graphics.print(hand.name, panel_x + 10, y)
@@ -409,8 +512,8 @@ function Round:drawHandTooltip(hand, ref_x, ref_y, ref_w, mx, my)
     local dice_y = tip_y + 28
 
     for i, val in ipairs(example) do
-        local dx = dice_x + (i - 1) * (die_size + die_gap)
-        UI.drawDie(dx, dice_y, die_size, val, UI.colors.die_black)
+        local ddx = dice_x + (i - 1) * (die_size + die_gap)
+        UI.drawDie(ddx, dice_y, die_size, val, UI.colors.die_black)
     end
 end
 
@@ -420,6 +523,12 @@ function Round:drawActions(player, W, H)
     local btn_w, btn_h = 180, 48
     local btn_y = H * 0.72
     local center_x = W / 2
+
+    local has_locked = false
+    for _, die in ipairs(player.dice_pool) do
+        if die.locked then has_locked = true; break end
+    end
+    local score_pulse = has_locked and (0.9 + 0.1 * math.sin(love.timer.getTime() * 4)) or 1
 
     self._reroll_hovered = UI.drawButton(
         "REROLL (" .. player.rerolls_remaining .. ")",
@@ -431,11 +540,18 @@ function Round:drawActions(player, W, H)
         }
     )
 
+    love.graphics.push()
+    local sc_cx = center_x + 20 + btn_w / 2
+    local sc_cy = btn_y + btn_h / 2
+    love.graphics.translate(sc_cx, sc_cy)
+    love.graphics.scale(score_pulse, score_pulse)
+    love.graphics.translate(-sc_cx, -sc_cy)
     self._score_hovered = UI.drawButton(
         "SCORE",
         center_x + 20, btn_y, btn_w, btn_h,
-        { font = Fonts.get(20), color = UI.colors.green, hover_color = { 0.25, 0.85, 0.45, 1 } }
+        { font = Fonts.get(20), color = UI.colors.green, hover_color = UI.colors.green_light }
     )
+    love.graphics.pop()
 
     love.graphics.setFont(Fonts.get(14))
     UI.setColor(UI.colors.text_dark)
@@ -443,30 +559,54 @@ function Round:drawActions(player, W, H)
 end
 
 function Round:drawPreRoll(player, W, H)
-    local overlay_alpha = math.min(1, pre_roll_timer)
-    love.graphics.setColor(0, 0, 0, overlay_alpha * 0.5)
+    local progress = 1 - math.max(0, pre_roll_timer / 1.2)
+    local overlay_alpha = 1 - progress * progress
+    love.graphics.setColor(0.04, 0.04, 0.08, overlay_alpha * 0.75)
     love.graphics.rectangle("fill", 0, 0, W, H)
 
-    love.graphics.setFont(Fonts.get(42))
-    UI.setColor(UI.colors.text)
-    love.graphics.printf("Round " .. player.round, 0, H * 0.35, W, "center")
+    love.graphics.push()
+    love.graphics.translate(W / 2, H * 0.38)
+    love.graphics.scale(pre_roll_anim.scale, pre_roll_anim.scale)
+
+    love.graphics.setFont(Fonts.get(48))
+    love.graphics.setColor(1, 1, 1, pre_roll_anim.alpha)
+    love.graphics.printf("Round " .. player.round, -W / 2, -24, W, "center")
+    love.graphics.pop()
 
     love.graphics.setFont(Fonts.get(24))
-    UI.setColor(UI.colors.accent)
-    love.graphics.printf("Target: " .. player:getTargetScore(), 0, H * 0.35 + 56, W, "center")
+    love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], pre_roll_anim.alpha)
+    love.graphics.printf("Target: " .. pre_roll_anim.target_count, 0, H * 0.38 + 40, W, "center")
 
     if player:isBossRound() then
-        UI.setColor(UI.colors.red)
-        love.graphics.printf("BOSS ROUND!", 0, H * 0.35 + 92, W, "center")
+        local boss_flash = 0.7 + 0.3 * math.sin(love.timer.getTime() * 10)
+        love.graphics.setColor(UI.colors.red[1], UI.colors.red[2], UI.colors.red[3], pre_roll_anim.alpha * boss_flash)
+        love.graphics.setFont(Fonts.get(28))
+        love.graphics.printf("BOSS ROUND!", 0, H * 0.38 + 76, W, "center")
     end
 end
 
 function Round:drawScoring(player, W, H)
-    if score_display_timer < 0.5 then return end
+    if score_display_timer < 0.3 then
+        local fade = score_display_timer / 0.3
+        love.graphics.setColor(0, 0, 0, fade * 0.5)
+        love.graphics.rectangle("fill", 0, 0, W, H)
+        return
+    end
 
-    local panel_w, panel_h = 420, 250
+    love.graphics.setColor(0, 0, 0, 0.5)
+    love.graphics.rectangle("fill", 0, 0, W, H)
+
+    local panel_w, panel_h = 420, 260
     local px = (W - panel_w) / 2
-    local py = H * 0.2
+    local py = H * 0.18
+
+    local panel_progress = math.min(1, (score_display_timer - 0.3) / 0.3)
+    local ps = 0.85 + 0.15 * Tween.easing.outBack(panel_progress)
+
+    love.graphics.push()
+    love.graphics.translate(px + panel_w / 2, py + panel_h / 2)
+    love.graphics.scale(ps, ps)
+    love.graphics.translate(-(px + panel_w / 2), -(py + panel_h / 2))
 
     UI.drawPanel(px, py, panel_w, panel_h, { border = UI.colors.accent, border_width = 2 })
 
@@ -476,47 +616,58 @@ function Round:drawScoring(player, W, H)
 
     love.graphics.setFont(Fonts.get(14))
     UI.setColor(UI.colors.text_dim)
-    local breakdown = "(" .. round_base_score .. " + " .. round_dice_sum .. ") × " .. string.format("%.1f", round_multiplier)
+    local breakdown = "(" .. round_base_score .. " + " .. round_dice_sum .. ") x " .. string.format("%.1f", round_multiplier)
     if round_bonus > 0 then
         breakdown = breakdown .. " + " .. round_bonus .. " bonus"
     end
     if round_mult_bonus > 0 then
-        breakdown = breakdown .. " × " .. string.format("%.1f", 1 + round_mult_bonus) .. " item mult"
+        breakdown = breakdown .. " x " .. string.format("%.1f", 1 + round_mult_bonus) .. " item mult"
     end
     love.graphics.printf(breakdown, px, py + 48, panel_w, "center")
 
     love.graphics.setFont(Fonts.get(42))
-    local t = UI.clamp((score_display_timer - 0.5) / 0.8, 0, 1)
-    local display_score = math.floor(UI.lerp(0, round_score, t))
+    local t = UI.clamp((score_display_timer - 0.6) / 1.0, 0, 1)
+    local eased_t = Tween.easing.outCubic(t)
+    local display_score = math.floor(UI.lerp(0, round_score, eased_t))
     UI.setColor(UI.colors.text)
     love.graphics.printf(tostring(display_score), px, py + 72, panel_w, "center")
+
+    if t >= 1 and scoring_shake.intensity == 0 and score_display_timer < 2.0 then
+        scoring_shake.intensity = math.min(8, round_score / 50)
+        local target = player:getTargetScore()
+        if round_score >= target then
+            Particles.burst(W / 2, py + 100, UI.colors.accent, 30)
+        end
+    end
 
     love.graphics.setFont(Fonts.get(18))
     local target = player:getTargetScore()
     if round_score >= target then
         UI.setColor(UI.colors.green)
-        love.graphics.printf("TARGET MET! +" .. currency_earned .. " currency", px, py + 128, panel_w, "center")
+        love.graphics.printf("TARGET MET! +" .. currency_earned .. " currency", px, py + 132, panel_w, "center")
     else
         UI.setColor(UI.colors.red)
-        love.graphics.printf("TARGET MISSED (" .. target .. " needed)", px, py + 128, panel_w, "center")
+        love.graphics.printf("TARGET MISSED (" .. target .. " needed)", px, py + 132, panel_w, "center")
     end
 
     if #dice_ability_results > 0 then
         love.graphics.setFont(Fonts.get(13))
         UI.setColor(UI.colors.text_dim)
         local ability_text = table.concat(dice_ability_results, " | ")
-        love.graphics.printf(ability_text, px + 10, py + 160, panel_w - 20, "center")
+        love.graphics.printf(ability_text, px + 10, py + 166, panel_w - 20, "center")
     end
+
+    love.graphics.pop()
 
     if score_display_timer > 2.0 then
         if round_score >= target then
             self._continue_hovered = UI.drawButton(
-                "CONTINUE", (W - 200) / 2, py + panel_h + 16, 200, 48,
+                "CONTINUE", (W - 200) / 2, py + panel_h + 20, 200, 48,
                 { font = Fonts.get(20), color = UI.colors.green }
             )
         else
             self._game_over_hovered = UI.drawButton(
-                "GAME OVER", (W - 200) / 2, py + panel_h + 16, 200, 48,
+                "GAME OVER", (W - 200) / 2, py + panel_h + 20, 200, 48,
                 { font = Fonts.get(20), color = UI.colors.red }
             )
         end
@@ -547,10 +698,10 @@ function Round:drawWildSelector(W, H)
     self._wild_values = {}
 
     for v = 1, 6 do
-        local dx = start_x + (v - 1) * (die_size + gap)
-        local hovered = UI.pointInRect(mx, my, dx, die_y, die_size, die_size)
-        UI.drawDie(dx, die_y, die_size, v, UI.colors.die_black, nil, false, hovered, UI.colors.accent)
-        self._wild_values[v] = { x = dx, y = die_y, w = die_size, h = die_size }
+        local ddx = start_x + (v - 1) * (die_size + gap)
+        local hovered = UI.pointInRect(mx, my, ddx, die_y, die_size, die_size)
+        UI.drawDie(ddx, die_y, die_size, v, UI.colors.die_black, nil, false, hovered, UI.colors.accent)
+        self._wild_values[v] = { x = ddx, y = die_y, w = die_size, h = die_size }
     end
 end
 
@@ -626,8 +777,7 @@ function Round:mousepressed(x, y, button, player)
             local dx, dy = getDiePosition(layout, i, count)
             if UI.pointInRect(x, y, dx, dy, layout.die_size, layout.die_size) then
                 if boss_context and boss_context.locked_by_boss == i then
-                    message = "Boss locked this die!"
-                    message_timer = 1.5
+                    Toast.error("Boss locked this die!")
                     return nil
                 end
 
@@ -638,6 +788,11 @@ function Round:mousepressed(x, y, button, player)
                 end
 
                 player:lockDie(i)
+                local da = die_anims[i]
+                if da then
+                    da.pop_scale = 1.15
+                    da.lock_flash = 1.0
+                end
                 self:updatePreview(player)
                 return nil
             end
@@ -653,6 +808,7 @@ function Round:mousepressed(x, y, button, player)
             local score = self:calculateScore(player)
             sub_state = "scoring"
             score_display_timer = 0
+            score_panel_anim = { alpha = 0, scale = 0.8 }
 
             if score >= player:getTargetScore() then
                 currency_earned = player:earnCurrency()
@@ -703,10 +859,14 @@ function Round:keypressed(key, player)
             local idx = tonumber(key)
             if idx >= 1 and idx <= #player.dice_pool then
                 if boss_context and boss_context.locked_by_boss == idx then
-                    message = "Boss locked this die!"
-                    message_timer = 1.5
+                    Toast.error("Boss locked this die!")
                 else
                     player:lockDie(idx)
+                    local da = die_anims[idx]
+                    if da then
+                        da.pop_scale = 1.15
+                        da.lock_flash = 1.0
+                    end
                     self:updatePreview(player)
                 end
             end

@@ -7,6 +7,11 @@ local createBosses = require("content/bosses")
 local SaveLoad = require("functions/saveload")
 local RNG = require("functions/rng")
 local Settings = require("functions/settings")
+local Tween = require("functions/tween")
+local Particles = require("functions/particles")
+local Transition = require("functions/transition")
+local Toast = require("functions/toast")
+local Fonts = require("functions/fonts")
 
 local Splash = require("states/splash")
 local SeedInput = require("states/seed_input")
@@ -135,6 +140,7 @@ function love.load()
         resizable = true,
         minwidth = 960,
         minheight = 540,
+        vsync = Settings.get("vsync") and 1 or 0,
     })
 
     music = love.audio.newSource("content/sfx/music.mp3", "stream")
@@ -170,6 +176,11 @@ function love.quit()
 end
 
 function love.update(dt)
+    Transition.update(dt)
+    Tween.update(dt)
+    Particles.update(dt)
+    Toast.update(dt)
+
     if unfocused and Settings.get("pause_on_unfocus") then return end
     if paused and state ~= "settings" then return end
 
@@ -216,6 +227,16 @@ function love.draw()
         PauseState:draw()
     end
 
+    Particles.draw()
+    Toast.draw()
+    Transition.draw()
+
+    if Settings.get("show_fps") then
+        love.graphics.setFont(Fonts.get(14))
+        love.graphics.setColor(1, 1, 1, 0.6)
+        love.graphics.print("FPS: " .. love.timer.getFPS(), 8, love.graphics.getHeight() - 22)
+    end
+
     if unfocused and Settings.get("pause_on_unfocus") then
         love.graphics.setColor(0, 0, 0, 0.6)
         love.graphics.rectangle("fill", 0, 0, love.graphics.getDimensions())
@@ -223,6 +244,7 @@ function love.draw()
 end
 
 function love.mousepressed(x, y, button)
+    if Transition.isActive() then return end
     if unfocused and Settings.get("pause_on_unfocus") then return end
 
     if state == "settings" then
@@ -261,6 +283,7 @@ function love.mousereleased(x, y, button)
 end
 
 function love.keypressed(key)
+    if Transition.isActive() then return end
     if unfocused and Settings.get("pause_on_unfocus") then return end
 
     if state == "settings" then
@@ -334,19 +357,25 @@ function handleResult(result)
     if not result then return end
 
     if result == "start_game" then
-        state = "seed_input"
-        SeedInput:init()
-    elseif result == "confirm_seed" then
-        local seed = SeedInput:getSeed()
-        initNewGame(seed)
-    elseif result == "back_to_menu" then
-        state = "splash"
-        Splash:init()
-    elseif result == "continue_game" then
-        if not loadGame() then
+        Transition.fadeTo(function()
             state = "seed_input"
             SeedInput:init()
-        end
+        end, 0.2)
+    elseif result == "confirm_seed" then
+        local seed = SeedInput:getSeed()
+        Transition.fadeTo(function() initNewGame(seed) end, 0.25)
+    elseif result == "back_to_menu" then
+        Transition.fadeTo(function()
+            state = "splash"
+            Splash:init()
+        end, 0.2)
+    elseif result == "continue_game" then
+        Transition.fadeTo(function()
+            if not loadGame() then
+                state = "seed_input"
+                SeedInput:init()
+            end
+        end, 0.25)
     elseif result == "open_settings" then
         SettingsState._from_state = "splash"
         SettingsState._game_draw = nil
@@ -354,6 +383,7 @@ function handleResult(result)
         SettingsState:init({ from_pause = false })
     elseif result == "settings_back" then
         applyMusicVolume()
+        love.window.setVSync(Settings.get("vsync") and 1 or 0)
         if SettingsState._from_state == "pause" then
             state = SettingsState._game_draw or "round"
             paused = true
@@ -364,28 +394,36 @@ function handleResult(result)
     elseif result == "exit" then
         love.event.quit()
     elseif result == "to_shop" then
-        local boss_ctx = RoundState:getBossContext()
-        if current_boss and boss_ctx then
-            current_boss:revertModifier(boss_ctx)
-        end
-        state = "shop"
-        ShopState:init(player, all_dice_types, all_items)
-        saveGame()
+        Transition.fadeTo(function()
+            local boss_ctx = RoundState:getBossContext()
+            if current_boss and boss_ctx then
+                current_boss:revertModifier(boss_ctx)
+            end
+            state = "shop"
+            ShopState:init(player, all_dice_types, all_items)
+            saveGame()
+        end, 0.25)
     elseif result == "next_round" then
-        player.round = player.round + 1
-        state = "round"
-        startRound()
-        saveGame()
+        Transition.fadeTo(function()
+            player.round = player.round + 1
+            state = "round"
+            startRound()
+            saveGame()
+        end, 0.25)
     elseif result == "game_over" then
-        local boss_ctx = RoundState:getBossContext()
-        if current_boss and boss_ctx then
-            current_boss:revertModifier(boss_ctx)
-        end
-        SaveLoad.deleteSave()
-        state = "game_over"
-        GameOverState:init()
+        Transition.fadeTo(function()
+            local boss_ctx = RoundState:getBossContext()
+            if current_boss and boss_ctx then
+                current_boss:revertModifier(boss_ctx)
+            end
+            SaveLoad.deleteSave()
+            state = "game_over"
+            GameOverState:init()
+        end, 0.35)
     elseif result == "restart" then
-        state = "splash"
-        Splash:init()
+        Transition.fadeTo(function()
+            state = "splash"
+            Splash:init()
+        end, 0.25)
     end
 end

@@ -1,14 +1,19 @@
 local UI = require("functions/ui")
 local Shop = require("objects/shop")
 local Fonts = require("functions/fonts")
+local Tween = require("functions/tween")
+local Particles = require("functions/particles")
+local Toast = require("functions/toast")
 
 local ShopState = {}
 
 local shop = nil
-local message = ""
-local message_timer = 0
 local replacing_die = nil
 local selected_shop_die = nil
+
+local section_anims = {}
+local currency_anim = { display = 0 }
+local card_hovers = {}
 
 local die_colors_map = {
     black = UI.colors.die_black,
@@ -20,14 +25,37 @@ local die_colors_map = {
 function ShopState:init(player, all_dice_types, all_items)
     shop = Shop:new()
     shop:generate(player, all_dice_types, all_items)
-    message = ""
-    message_timer = 0
     replacing_die = nil
     selected_shop_die = nil
+    card_hovers = {}
+
+    currency_anim = { display = player.currency }
+
+    section_anims = {}
+    for i = 1, 3 do
+        section_anims[i] = { y_off = 60, alpha = 0 }
+        Tween.to(section_anims[i], 0.4, { y_off = 0, alpha = 1 }, "outBack")
+    end
 end
 
 function ShopState:update(dt)
-    message_timer = math.max(0, message_timer - dt)
+    for key, ch in pairs(card_hovers) do
+        ch.lift = ch.lift + (ch.target_lift - ch.lift) * math.min(1, 12 * dt)
+        ch.shadow = ch.shadow + (ch.target_shadow - ch.shadow) * math.min(1, 12 * dt)
+    end
+end
+
+local function getCardHover(key)
+    if not card_hovers[key] then
+        card_hovers[key] = { lift = 0, target_lift = 0, shadow = 0, target_shadow = 0 }
+    end
+    return card_hovers[key]
+end
+
+local function setCardHoverState(key, hovered)
+    local ch = getCardHover(key)
+    ch.target_lift = hovered and -4 or 0
+    ch.target_shadow = hovered and 6 or 0
 end
 
 function ShopState:draw(player)
@@ -47,12 +75,6 @@ function ShopState:draw(player)
         self:drawDieReplaceOverlay(player, W, H)
     end
 
-    if message_timer > 0 then
-        local alpha = math.min(1, message_timer)
-        love.graphics.setColor(1, 1, 1, alpha)
-        love.graphics.setFont(Fonts.get(18))
-        love.graphics.printf(message, 0, H - 70, W, "center")
-    end
 end
 
 function ShopState:drawHeader(player, W)
@@ -62,11 +84,12 @@ function ShopState:drawHeader(player, W)
     UI.setColor(UI.colors.accent)
     love.graphics.printf("SHOP", 0, 20, W, "center")
 
+    currency_anim.display = currency_anim.display + (player.currency - currency_anim.display) * math.min(1, 8 * love.timer.getDelta())
     UI.setColor(UI.colors.green)
-    love.graphics.printf("$" .. player.currency, 0, 22, W - 24, "right")
+    love.graphics.printf("$" .. math.floor(currency_anim.display + 0.5), 0, 22, W - 24, "right")
 
     if not shop.free_choice_used then
-        UI.drawBadge("FREE CHOICE AVAILABLE", 24, 22, UI.colors.free_badge, Fonts.get(14))
+        UI.drawBadge("FREE CHOICE AVAILABLE", 24, 22, UI.colors.free_badge, Fonts.get(14), true)
     end
 end
 
@@ -90,15 +113,17 @@ function ShopState:drawPlayerDice(player, W, H)
 end
 
 function ShopState:drawHandUpgrades(player, W, H)
+    local sa = section_anims[1] or { y_off = 0, alpha = 1 }
     local section_x = 20
-    local section_y = 160
+    local section_y = 160 + sa.y_off
     local section_w = W / 3 - 30
     local section_h = H - 250
 
+    love.graphics.setColor(1, 1, 1, sa.alpha)
     UI.drawPanel(section_x, section_y, section_w, section_h, { border = UI.colors.panel_light })
 
     love.graphics.setFont(Fonts.get(18))
-    UI.setColor(UI.colors.accent)
+    love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], sa.alpha)
     love.graphics.printf("HAND UPGRADES", section_x, section_y + 10, section_w, "center")
 
     self._hand_upgrade_buttons = {}
@@ -114,35 +139,44 @@ function ShopState:drawHandUpgrades(player, W, H)
         local item_w = section_w - 20
         local hovered = not maxed and UI.pointInRect(mx, my, item_x, iy, item_w, 50)
 
+        local key = "hand_" .. i
+        setCardHoverState(key, hovered)
+        local ch = getCardHover(key)
+
         UI.setColor(hovered and UI.colors.panel_hover or UI.colors.panel_light)
-        UI.roundRect("fill", item_x, iy, item_w, 50, 6)
+        if ch.shadow > 0.5 then
+            love.graphics.setColor(0, 0, 0, 0.15)
+            UI.roundRect("fill", item_x + 2, iy + ch.shadow + 2, item_w, 50, 6)
+        end
+        UI.setColor(hovered and UI.colors.panel_hover or UI.colors.panel_light)
+        UI.roundRect("fill", item_x, iy + ch.lift, item_w, 50, 6)
 
         love.graphics.setFont(Fonts.get(14))
         if maxed then
             UI.setColor(UI.colors.text_dark)
-            love.graphics.print(upgrade.hand.name .. " MAX", item_x + 8, iy + 6)
+            love.graphics.print(upgrade.hand.name .. " MAX", item_x + 8, iy + 6 + ch.lift)
         else
             UI.setColor(UI.colors.text)
-            love.graphics.print(upgrade.hand.name .. " +" .. (upgrade.hand.upgrade_level + 1), item_x + 8, iy + 6)
+            love.graphics.print(upgrade.hand.name .. " +" .. (upgrade.hand.upgrade_level + 1), item_x + 8, iy + 6 + ch.lift)
         end
 
         love.graphics.setFont(Fonts.get(12))
         UI.setColor(UI.colors.text_dim)
-        love.graphics.print(upgrade.hand:getDisplayScore(), item_x + 8, iy + 26)
+        love.graphics.print(upgrade.hand:getDisplayScore(), item_x + 8, iy + 26 + ch.lift)
 
         if maxed then
             UI.setColor(UI.colors.text_dark)
             love.graphics.setFont(Fonts.get(14))
-            love.graphics.printf("MAXED", item_x, iy + 8, item_w - 8, "right")
+            love.graphics.printf("MAXED", item_x, iy + 8 + ch.lift, item_w - 8, "right")
         elseif not shop.free_choice_used then
             UI.setColor(UI.colors.free_badge)
             love.graphics.setFont(Fonts.get(14))
-            love.graphics.printf("FREE", item_x, iy + 8, item_w - 8, "right")
+            love.graphics.printf("FREE", item_x, iy + 8 + ch.lift, item_w - 8, "right")
         else
             local can_afford = player.currency >= live_cost
             UI.setColor(can_afford and UI.colors.accent or UI.colors.red)
             love.graphics.setFont(Fonts.get(14))
-            love.graphics.printf("$" .. live_cost, item_x, iy + 8, item_w - 8, "right")
+            love.graphics.printf("$" .. live_cost, item_x, iy + 8 + ch.lift, item_w - 8, "right")
         end
 
         self._hand_upgrade_buttons[i] = { x = item_x, y = iy, w = item_w, h = 50, hovered = hovered }
@@ -156,15 +190,17 @@ function ShopState:drawHandUpgrades(player, W, H)
 end
 
 function ShopState:drawDiceSection(player, W, H)
+    local sa = section_anims[2] or { y_off = 0, alpha = 1 }
     local section_x = W / 3 + 5
-    local section_y = 160
+    local section_y = 160 + sa.y_off
     local section_w = W / 3 - 30
     local section_h = H - 250
 
+    love.graphics.setColor(1, 1, 1, sa.alpha)
     UI.drawPanel(section_x, section_y, section_w, section_h, { border = UI.colors.panel_light })
 
     love.graphics.setFont(Fonts.get(18))
-    UI.setColor(UI.colors.accent)
+    love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], sa.alpha)
     love.graphics.printf("DICE", section_x, section_y + 10, section_w, "center")
 
     self._dice_buttons = {}
@@ -178,30 +214,38 @@ function ShopState:drawDiceSection(player, W, H)
         local item_w = section_w - 20
         local hovered = UI.pointInRect(mx, my, item_x, iy, item_w, 72)
 
+        local key = "dice_" .. i
+        setCardHoverState(key, hovered)
+        local ch = getCardHover(key)
+
+        if ch.shadow > 0.5 then
+            love.graphics.setColor(0, 0, 0, 0.15)
+            UI.roundRect("fill", item_x + 2, iy + ch.shadow + 2, item_w, 72, 6)
+        end
         UI.setColor(hovered and UI.colors.panel_hover or UI.colors.panel_light)
-        UI.roundRect("fill", item_x, iy, item_w, 72, 6)
+        UI.roundRect("fill", item_x, iy + ch.lift, item_w, 72, 6)
 
         local die = entry.die
         local die_size = 40
         local dot_color = die_colors_map[die.color] or UI.colors.die_black
-        UI.drawDie(item_x + 8, iy + 8, die_size, die.value, dot_color, nil, false, false, die.glow_color)
+        UI.drawDie(item_x + 8, iy + 8 + ch.lift, die_size, die.value, dot_color, nil, false, false, die.glow_color)
 
         love.graphics.setFont(Fonts.get(14))
         UI.setColor(UI.colors.text)
-        love.graphics.print(die.name, item_x + 56, iy + 6)
+        love.graphics.print(die.name, item_x + 56, iy + 6 + ch.lift)
 
         love.graphics.setFont(Fonts.get(11))
         UI.setColor(UI.colors.text_dim)
-        love.graphics.printf(die.ability_desc, item_x + 56, iy + 24, item_w - 64)
+        love.graphics.printf(die.ability_desc, item_x + 56, iy + 24 + ch.lift, item_w - 64)
 
         if not shop.free_choice_used then
             UI.setColor(UI.colors.free_badge)
             love.graphics.setFont(Fonts.get(14))
-            love.graphics.printf("FREE", item_x, iy + 8, item_w - 8, "right")
+            love.graphics.printf("FREE", item_x, iy + 8 + ch.lift, item_w - 8, "right")
         else
             UI.setColor(UI.colors.accent)
             love.graphics.setFont(Fonts.get(14))
-            love.graphics.printf("$" .. entry.cost, item_x, iy + 8, item_w - 8, "right")
+            love.graphics.printf("$" .. entry.cost, item_x, iy + 8 + ch.lift, item_w - 8, "right")
         end
 
         self._dice_buttons[i] = { x = item_x, y = iy, w = item_w, h = 72, hovered = hovered }
@@ -215,15 +259,17 @@ function ShopState:drawDiceSection(player, W, H)
 end
 
 function ShopState:drawItemsSection(player, W, H)
+    local sa = section_anims[3] or { y_off = 0, alpha = 1 }
     local section_x = 2 * W / 3 + 10
-    local section_y = 160
+    local section_y = 160 + sa.y_off
     local section_w = W / 3 - 30
     local section_h = H - 250
 
+    love.graphics.setColor(1, 1, 1, sa.alpha)
     UI.drawPanel(section_x, section_y, section_w, section_h, { border = UI.colors.panel_light })
 
     love.graphics.setFont(Fonts.get(18))
-    UI.setColor(UI.colors.accent)
+    love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], sa.alpha)
     love.graphics.printf("ITEMS", section_x, section_y + 10, section_w, "center")
 
     self._item_buttons = {}
@@ -237,20 +283,28 @@ function ShopState:drawItemsSection(player, W, H)
         local item_w = section_w - 20
         local hovered = UI.pointInRect(mx, my, item_x, iy, item_w, 60)
 
+        local key = "item_" .. i
+        setCardHoverState(key, hovered)
+        local ch = getCardHover(key)
+
+        if ch.shadow > 0.5 then
+            love.graphics.setColor(0, 0, 0, 0.15)
+            UI.roundRect("fill", item_x + 2, iy + ch.shadow + 2, item_w, 60, 6)
+        end
         UI.setColor(hovered and UI.colors.panel_hover or UI.colors.panel_light)
-        UI.roundRect("fill", item_x, iy, item_w, 60, 6)
+        UI.roundRect("fill", item_x, iy + ch.lift, item_w, 60, 6)
 
         love.graphics.setFont(Fonts.get(14))
         UI.setColor(UI.colors.text)
-        love.graphics.print("[" .. item.icon .. "] " .. item.name, item_x + 8, iy + 6)
+        love.graphics.print("[" .. item.icon .. "] " .. item.name, item_x + 8, iy + 6 + ch.lift)
 
         love.graphics.setFont(Fonts.get(11))
         UI.setColor(UI.colors.text_dim)
-        love.graphics.printf(item.description, item_x + 8, iy + 26, item_w - 16)
+        love.graphics.printf(item.description, item_x + 8, iy + 26 + ch.lift, item_w - 16)
 
         UI.setColor(UI.colors.accent)
         love.graphics.setFont(Fonts.get(14))
-        love.graphics.printf("$" .. item.cost, item_x, iy + 8, item_w - 8, "right")
+        love.graphics.printf("$" .. item.cost, item_x, iy + 8 + ch.lift, item_w - 8, "right")
 
         self._item_buttons[i] = { x = item_x, y = iy, w = item_w, h = 60, hovered = hovered }
     end
@@ -276,7 +330,7 @@ function ShopState:drawContinueButton(W, H)
     local btn_w, btn_h = 220, 52
     self._continue_hovered = UI.drawButton(
         "CONTINUE", (W - btn_w) / 2, H - 70, btn_w, btn_h,
-        { font = Fonts.get(22), color = UI.colors.green, hover_color = { 0.25, 0.85, 0.45, 1 } }
+        { font = Fonts.get(22), color = UI.colors.green, hover_color = UI.colors.green_light }
     )
 end
 
@@ -330,8 +384,12 @@ function ShopState:mousepressed(x, y, button, player)
         for i, btn in pairs(self._replace_die_buttons or {}) do
             if UI.pointInRect(x, y, btn.x, btn.y, btn.w, btn.h) then
                 local ok, msg = shop:buyDie(player, selected_shop_die, i)
-                message = msg
-                message_timer = 2.0
+                if ok then
+                    Toast.success(msg)
+                    Particles.sparkle(x, y, UI.colors.green_light, 15)
+                else
+                    Toast.error(msg)
+                end
                 replacing_die = false
                 selected_shop_die = nil
                 return nil
@@ -348,8 +406,12 @@ function ShopState:mousepressed(x, y, button, player)
     for i, btn in pairs(self._hand_upgrade_buttons or {}) do
         if btn.hovered then
             local ok, msg = shop:buyHandUpgrade(player, i)
-            message = msg
-            message_timer = 2.0
+            if ok then
+                Toast.success(msg)
+                Particles.sparkle(x, y, UI.colors.accent, 12)
+            else
+                Toast.error(msg)
+            end
             return nil
         end
     end
@@ -365,8 +427,12 @@ function ShopState:mousepressed(x, y, button, player)
     for i, btn in pairs(self._item_buttons or {}) do
         if btn.hovered then
             local ok, msg = shop:buyItem(player, i)
-            message = msg
-            message_timer = 2.0
+            if ok then
+                Toast.success(msg)
+                Particles.sparkle(x, y, UI.colors.green_light, 15)
+            else
+                Toast.error(msg)
+            end
             return nil
         end
     end
