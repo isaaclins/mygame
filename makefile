@@ -140,5 +140,5 @@ clean-all:
 	@rm -rf $(BUILD_DIR)
 	@echo "Removed entire build directory."
 
-format:
+lint:
 	@stylua .
