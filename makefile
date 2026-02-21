@@ -9,7 +9,6 @@ UNAME_S := $(shell uname -s)
 # ─── Derived Paths ───────────────────────────────────────────────────
 LOVE_FILE  := $(BUILD_DIR)/$(GAME_NAME).love
 LOVE_CACHE := $(BUILD_DIR)/.love-cache
-
 LOVE_MACOS_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSION)/love-$(LOVE_VERSION)-macos.zip
 LOVE_WIN64_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSION)/love-$(LOVE_VERSION)-win64.zip
 LOVE_LINUX_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSION)/love-$(LOVE_VERSION)-x86_64.AppImage
@@ -140,3 +139,6 @@ clean:
 clean-all:
 	@rm -rf $(BUILD_DIR)
 	@echo "Removed entire build directory."
+
+format:
+	@stylua .
