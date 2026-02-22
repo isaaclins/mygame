@@ -169,10 +169,30 @@ function Player:getTargetScore()
 end
 
 function Player:earnCurrency()
+    local breakdown = {}
+    local total = 0
+
     local target = self:getTargetScore()
-    local earned = math.max(5, math.floor(target / 8))
-    self.currency = self.currency + earned
-    return earned
+    local base = math.max(5, math.floor(target / 8))
+    table.insert(breakdown, { label = "Round Reward", amount = base })
+    total = total + base
+
+    if self.rerolls_remaining > 0 then
+        table.insert(breakdown, {
+            label = "Unused Rerolls (" .. self.rerolls_remaining .. ")",
+            amount = self.rerolls_remaining,
+        })
+        total = total + self.rerolls_remaining
+    end
+
+    local interest = math.min(5, math.floor(self.currency / 5))
+    if interest > 0 then
+        table.insert(breakdown, { label = "Interest (1 per $5)", amount = interest })
+        total = total + interest
+    end
+
+    self.currency = self.currency + total
+    return total, breakdown
 end
 
 function Player:isBossRound()

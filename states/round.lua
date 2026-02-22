@@ -30,6 +30,7 @@ local round_multiplier = 0
 local round_bonus = 0
 local round_mult_bonus = 0
 local currency_earned = 0
+local currency_breakdown = {}
 local wild_selecting = false
 local wild_die_index = nil
 local boss_context = nil
@@ -88,6 +89,7 @@ function Round:init(player, boss)
     round_hand = nil
     round_matched = {}
     currency_earned = 0
+    currency_breakdown = {}
     wild_selecting = false
     wild_die_index = nil
     dice_ability_results = {}
@@ -873,6 +875,13 @@ function Round:drawPreRoll(player, W, H)
     end
 end
 
+local function getScoringButtonDelay()
+    if #currency_breakdown > 0 then
+        return 1.6 + #currency_breakdown * 0.2 + 0.6
+    end
+    return 2.0
+end
+
 function Round:drawScoring(player, W, H)
     if score_display_timer < 0.3 then
         local fade = score_display_timer / 0.3
@@ -884,7 +893,19 @@ function Round:drawScoring(player, W, H)
     love.graphics.setColor(0, 0, 0, 0.5)
     love.graphics.rectangle("fill", 0, 0, W, H)
 
-    local panel_w, panel_h = 420, 260
+    local target = player:getTargetScore()
+    local won = round_score >= target
+    local bd_count = won and #currency_breakdown or 0
+    local has_abilities = #dice_ability_results > 0
+
+    local panel_w = 420
+    local panel_h
+    if won and bd_count > 0 then
+        panel_h = 164 + bd_count * 24 + 38 + (has_abilities and 30 or 0)
+    else
+        panel_h = 260
+    end
+
     local px = (W - panel_w) / 2
     local py = H * 0.18
 
@@ -904,14 +925,14 @@ function Round:drawScoring(player, W, H)
 
     love.graphics.setFont(Fonts.get(14))
     UI.setColor(UI.colors.text_dim)
-    local breakdown = "(" .. round_base_score .. " + " .. round_dice_sum .. ") x " .. string.format("%.1f", round_multiplier)
+    local formula = "(" .. round_base_score .. " + " .. round_dice_sum .. ") x " .. string.format("%.1f", round_multiplier)
     if round_bonus > 0 then
-        breakdown = breakdown .. " + " .. round_bonus .. " bonus"
+        formula = formula .. " + " .. round_bonus .. " bonus"
     end
     if round_mult_bonus > 0 then
-        breakdown = breakdown .. " x " .. string.format("%.1f", 1 + round_mult_bonus) .. " item mult"
+        formula = formula .. " x " .. string.format("%.1f", 1 + round_mult_bonus) .. " item mult"
     end
-    love.graphics.printf(breakdown, px, py + 48, panel_w, "center")
+    love.graphics.printf(formula, px, py + 48, panel_w, "center")
 
     love.graphics.setFont(Fonts.get(42))
     local t = UI.clamp((score_display_timer - 0.6) / 1.0, 0, 1)
@@ -922,33 +943,96 @@ function Round:drawScoring(player, W, H)
 
     if t >= 1 and scoring_shake.intensity == 0 and score_display_timer < 2.0 then
         scoring_shake.intensity = math.min(8, round_score / 50)
-        local target = player:getTargetScore()
-        if round_score >= target then
+        if won then
             Particles.burst(W / 2, py + 100, UI.colors.accent, 30)
         end
     end
 
     love.graphics.setFont(Fonts.get(18))
-    local target = player:getTargetScore()
-    if round_score >= target then
+
+    if won then
         UI.setColor(UI.colors.green)
-        love.graphics.printf("TARGET MET! +" .. currency_earned .. " currency", px, py + 132, panel_w, "center")
+        love.graphics.printf("TARGET MET!", px, py + 132, panel_w, "center")
+
+        local line_font = Fonts.get(14)
+        love.graphics.setFont(line_font)
+        local pad_x = 24
+        local line_y_start = py + 162
+        local line_height = 24
+        local bd_start_time = 1.6
+        local line_stagger = 0.2
+
+        for i, entry in ipairs(currency_breakdown) do
+            local lt = score_display_timer - (bd_start_time + (i - 1) * line_stagger)
+            if lt > 0 then
+                local alpha = math.min(1, lt / 0.15)
+                local y_off = (1 - alpha) * 6
+                local ly = line_y_start + (i - 1) * line_height + y_off
+
+                local label = entry.label
+                local amount_str = "+$" .. entry.amount
+
+                love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], alpha)
+                love.graphics.printf(label, px + pad_x, ly, panel_w - pad_x * 2, "left")
+
+                local label_w = line_font:getWidth(label)
+                local amount_w = line_font:getWidth(amount_str)
+                local dot_w = line_font:getWidth(". ")
+                local dots_start_x = px + pad_x + label_w + 6
+                local dots_end_x = px + panel_w - pad_x - amount_w - 6
+                love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], alpha * 0.6)
+                local dot_x = dots_start_x
+                while dot_x + dot_w < dots_end_x do
+                    love.graphics.print(".", dot_x, ly)
+                    dot_x = dot_x + dot_w
+                end
+
+                love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], alpha)
+                love.graphics.printf(amount_str, px + pad_x, ly, panel_w - pad_x * 2, "right")
+            end
+        end
+
+        local total_time = score_display_timer - (bd_start_time + bd_count * line_stagger)
+        if total_time > 0 then
+            local total_alpha = math.min(1, total_time / 0.15)
+            local sep_y = line_y_start + bd_count * line_height + 2
+
+            love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], total_alpha * 0.5)
+            love.graphics.setLineWidth(1)
+            love.graphics.line(px + pad_x, sep_y, px + panel_w - pad_x, sep_y)
+
+            love.graphics.setFont(Fonts.get(16))
+            local total_y = sep_y + 8
+            love.graphics.setColor(UI.colors.text[1], UI.colors.text[2], UI.colors.text[3], total_alpha)
+            love.graphics.printf("Total", px + pad_x, total_y, panel_w - pad_x * 2, "left")
+            love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], total_alpha)
+            love.graphics.printf("$" .. currency_earned, px + pad_x, total_y, panel_w - pad_x * 2, "right")
+        end
+
+        if has_abilities then
+            local ability_y = line_y_start + bd_count * line_height + 38
+            love.graphics.setFont(Fonts.get(13))
+            UI.setColor(UI.colors.text_dim)
+            local ability_text = table.concat(dice_ability_results, " | ")
+            love.graphics.printf(ability_text, px + 10, ability_y, panel_w - 20, "center")
+        end
     else
         UI.setColor(UI.colors.red)
         love.graphics.printf("TARGET MISSED (" .. target .. " needed)", px, py + 132, panel_w, "center")
-    end
 
-    if #dice_ability_results > 0 then
-        love.graphics.setFont(Fonts.get(13))
-        UI.setColor(UI.colors.text_dim)
-        local ability_text = table.concat(dice_ability_results, " | ")
-        love.graphics.printf(ability_text, px + 10, py + 166, panel_w - 20, "center")
+        if has_abilities then
+            love.graphics.setFont(Fonts.get(13))
+            UI.setColor(UI.colors.text_dim)
+            local ability_text = table.concat(dice_ability_results, " | ")
+            love.graphics.printf(ability_text, px + 10, py + 166, panel_w - 20, "center")
+        end
     end
 
     love.graphics.pop()
 
-    if score_display_timer > 2.0 then
-        if round_score >= target then
+    local btn_delay = getScoringButtonDelay()
+    if score_display_timer > btn_delay then
+        if won then
             self._continue_hovered = UI.drawButton(
                 "CONTINUE", (W - 200) / 2, py + panel_h + 20, 200, 48,
                 { font = Fonts.get(20), color = UI.colors.green }
@@ -1081,9 +1165,15 @@ local function doScore(self, player)
     score_panel_anim = { alpha = 0, scale = 0.8 }
     selected_die_index = nil
     if score >= player:getTargetScore() then
-        currency_earned = player:earnCurrency()
-        local earn_context = { player = player, phase = "earn" }
+        currency_earned, currency_breakdown = player:earnCurrency()
+        local earn_context = { player = player, phase = "earn", currency_breakdown = currency_breakdown }
         player:applyItems(earn_context)
+        currency_earned = 0
+        for _, entry in ipairs(currency_breakdown) do
+            currency_earned = currency_earned + entry.amount
+        end
+    else
+        currency_breakdown = {}
     end
     if Tutorial:isActive() then Tutorial:notifyAction("score") end
 end
@@ -1156,7 +1246,7 @@ function Round:mousepressed(x, y, button, player)
         end
     end
 
-    if sub_state == "scoring" and score_display_timer > 2.0 then
+    if sub_state == "scoring" and score_display_timer > getScoringButtonDelay() then
         local target = player:getTargetScore()
         if round_score >= target then
             if self._continue_hovered then
@@ -1245,7 +1335,7 @@ function Round:keypressed(key, player)
                 doLockDie(self, player, idx)
             end
         end
-    elseif sub_state == "scoring" and score_display_timer > 2.0 then
+    elseif sub_state == "scoring" and score_display_timer > getScoringButtonDelay() then
         if key == "return" or key == "space" or isKey(key, "score") then
             if round_score >= player:getTargetScore() then
                 return "to_shop"

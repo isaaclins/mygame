@@ -55,7 +55,11 @@ local function createItems()
             trigger_type = "once",
             effect = function(self, context)
                 if context and context.phase == "earn" and context.player then
-                    context.player.currency = context.player.currency + 3
+                    local bonus = 3
+                    context.player.currency = context.player.currency + bonus
+                    if context.currency_breakdown then
+                        table.insert(context.currency_breakdown, { label = "Lucky Penny", amount = bonus })
+                    end
                 end
             end,
         }),
