@@ -654,12 +654,20 @@ local hand_examples = {
 function Round:drawHandReference(player, W, H)
     if hand_ref_anim.alpha < 0.01 then return end
 
+    local dice_count = #player.dice_pool
+    local visible_hands = {}
+    for _, hand in ipairs(player.hands) do
+        if (hand.min_dice or 1) <= dice_count then
+            table.insert(visible_hands, hand)
+        end
+    end
+
     local panel_x = W - 230 + hand_ref_anim.x_off
     local panel_y = 70
     local panel_w = 220
-    local line_h = #player.hands > 12 and 18 or 22
-    local font_size = #player.hands > 12 and 11 or 13
-    local panel_h = #player.hands * line_h + 20
+    local line_h = #visible_hands > 12 and 18 or 22
+    local font_size = #visible_hands > 12 and 11 or 13
+    local panel_h = #visible_hands * line_h + 20
 
     love.graphics.setColor(1, 1, 1, hand_ref_anim.alpha)
     UI.drawPanel(panel_x, panel_y, panel_w, panel_h)
@@ -668,7 +676,7 @@ function Round:drawHandReference(player, W, H)
     local mx, my = love.mouse.getPosition()
     local hovered_hand = nil
 
-    for i, hand in ipairs(player.hands) do
+    for i, hand in ipairs(visible_hands) do
         local y = panel_y + 8 + (i - 1) * line_h
         local is_hovered = UI.pointInRect(mx, my, panel_x, y, panel_w, line_h)
 

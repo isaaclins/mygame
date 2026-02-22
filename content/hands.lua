@@ -7,6 +7,7 @@ local function createHands()
             base_score = 5,
             multiplier = 1,
             priority = 1,
+            min_dice = 1,
             description = "Highest single die",
         }),
         Hand:new({
@@ -14,6 +15,7 @@ local function createHands()
             base_score = 10,
             multiplier = 1.5,
             priority = 2,
+            min_dice = 2,
             description = "Two dice of the same value",
         }),
         Hand:new({
@@ -21,6 +23,7 @@ local function createHands()
             base_score = 20,
             multiplier = 1.5,
             priority = 3,
+            min_dice = 4,
             description = "Two different pairs",
         }),
         Hand:new({
@@ -28,6 +31,7 @@ local function createHands()
             base_score = 30,
             multiplier = 2,
             priority = 4,
+            min_dice = 3,
             description = "Three dice of the same value",
         }),
         Hand:new({
@@ -35,6 +39,7 @@ local function createHands()
             base_score = 30,
             multiplier = 2.5,
             priority = 5,
+            min_dice = 4,
             description = "Four consecutive values",
         }),
         Hand:new({
@@ -42,6 +47,7 @@ local function createHands()
             base_score = 40,
             multiplier = 2.5,
             priority = 6,
+            min_dice = 5,
             description = "Three of a kind + a pair",
         }),
         Hand:new({
@@ -49,6 +55,7 @@ local function createHands()
             base_score = 45,
             multiplier = 3,
             priority = 7,
+            min_dice = 5,
             description = "Five consecutive values",
         }),
         Hand:new({
@@ -56,6 +63,7 @@ local function createHands()
             base_score = 60,
             multiplier = 3.5,
             priority = 8,
+            min_dice = 4,
             description = "Four dice of the same value",
         }),
         Hand:new({
@@ -63,6 +71,7 @@ local function createHands()
             base_score = 100,
             multiplier = 5,
             priority = 9,
+            min_dice = 5,
             description = "All five dice the same value",
         }),
         Hand:new({
@@ -70,6 +79,7 @@ local function createHands()
             base_score = 40,
             multiplier = 3,
             priority = 10,
+            min_dice = 5,
             description = "Every die shows an even value (2/4/6)",
         }),
         Hand:new({
@@ -77,6 +87,7 @@ local function createHands()
             base_score = 40,
             multiplier = 3,
             priority = 11,
+            min_dice = 5,
             description = "Every die shows an odd value (1/3/5)",
         }),
         Hand:new({
@@ -84,6 +95,7 @@ local function createHands()
             base_score = 50,
             multiplier = 3,
             priority = 12,
+            min_dice = 6,
             description = "Three different pairs (6+ dice)",
         }),
         Hand:new({
@@ -91,6 +103,7 @@ local function createHands()
             base_score = 65,
             multiplier = 4,
             priority = 13,
+            min_dice = 6,
             description = "Two sets of three of a kind (6+ dice)",
         }),
         Hand:new({
@@ -98,6 +111,7 @@ local function createHands()
             base_score = 80,
             multiplier = 4.5,
             priority = 14,
+            min_dice = 6,
             description = "All values 1-6 present (6+ dice)",
         }),
         Hand:new({
@@ -105,6 +119,7 @@ local function createHands()
             base_score = 130,
             multiplier = 6,
             priority = 15,
+            min_dice = 6,
             description = "Six dice of the same value",
         }),
         Hand:new({
@@ -112,6 +127,7 @@ local function createHands()
             base_score = 175,
             multiplier = 8,
             priority = 16,
+            min_dice = 7,
             description = "Seven dice of the same value",
         }),
         Hand:new({
@@ -119,6 +135,7 @@ local function createHands()
             base_score = 200,
             multiplier = 10,
             priority = 17,
+            min_dice = 9,
             description = "1×two, 3×fours, 5×sixes (9 dice)",
         }),
     }

@@ -9,6 +9,7 @@ function Hand:init(opts)
     self.upgrade_level = opts.upgrade_level or 0
     self.max_upgrade = opts.max_upgrade or 5
     self.priority = opts.priority or 0
+    self.min_dice = opts.min_dice or 1
     self.detect = opts.detect or function() return false, {} end
     self.description = opts.description or ""
     self._original_base = self.base_score

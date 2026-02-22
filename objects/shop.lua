@@ -14,8 +14,9 @@ function Shop:generate(player, all_dice_types, all_items)
     self.free_choice_used = player.free_choice_used
 
     self.hand_upgrades = {}
+    local dice_count = #player.dice_pool
     for i, hand in ipairs(player.hands) do
-        if hand.upgrade_level < hand.max_upgrade then
+        if hand.upgrade_level < hand.max_upgrade and (hand.min_dice or 1) <= dice_count then
             table.insert(self.hand_upgrades, {
                 hand_index = i,
                 hand = hand,
