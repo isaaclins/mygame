@@ -10,8 +10,8 @@ local Round = {}
 
 local sort_modes = {
     { key = "default",    label = "Default" },
-    { key = "value_asc",  label = "Value ↑" },
-    { key = "value_desc", label = "Value ↓" },
+    { key = "value_asc",  label = "Val 1-6" },
+    { key = "value_desc", label = "Val 6-1" },
     { key = "type",       label = "Type" },
     { key = "even_first", label = "Even 1st" },
     { key = "odd_first",  label = "Odd 1st" },
@@ -37,6 +37,8 @@ local preview_hand = nil
 local preview_score = 0
 local preview_bonus = 0
 local preview_mult_bonus = 0
+local selected_die_index = nil
+local tooltip_visible = true
 
 local die_anims = {}
 local pre_roll_anim = { scale = 0, alpha = 0, target_count = 0 }
@@ -68,6 +70,14 @@ local function resetDieAnims(player)
     end
 end
 
+local function getKeybind(action)
+    return Settings.get("keybind_" .. action)
+end
+
+local function isKey(key, action)
+    return key == getKeybind(action)
+end
+
 function Round:init(player, boss)
     sub_state = "pre_roll"
     pre_roll_timer = 1.2
@@ -82,6 +92,7 @@ function Round:init(player, boss)
     preview_hand = nil
     shown_preview = false
     shown_hand_ref = false
+    selected_die_index = nil
 
     player:startNewRound()
 
@@ -406,21 +417,63 @@ function Round:drawDice(player, W, H)
     local count = #player.dice_pool
     local layout = getDiceLayout(count, W, H)
     local mx, my = love.mouse.getPosition()
+    local t = love.timer.getTime()
+
+    local tooltip_die = nil
+    local tooltip_dx, tooltip_dy, tooltip_s = 0, 0, 0
+
+    local die_matched = {}
+    if sub_state == "choosing" and preview_hand then
+        local values = player:getDiceValues()
+        local _, matched = Scoring.detectHand(values)
+        matched = matched or {}
+        local match_counts = {}
+        for _, v in ipairs(matched) do
+            match_counts[v] = (match_counts[v] or 0) + 1
+        end
+        for i, die in ipairs(player.dice_pool) do
+            local v = die.value
+            if match_counts[v] and match_counts[v] > 0 then
+                die_matched[i] = true
+                match_counts[v] = match_counts[v] - 1
+            end
+        end
+    end
 
     for i, die in ipairs(player.dice_pool) do
         local dx, dy = getDiePosition(layout, i, count)
         local da = die_anims[i] or { hover_scale = 1, y_off = 0, lock_flash = 0, bounce = 0, pop_scale = 1 }
         local hovered = UI.pointInRect(mx, my, dx - 4, dy - 4, layout.die_size + 8, layout.die_size + 8)
         local dot_color = die_colors_map[die.color] or UI.colors.die_black
+        local is_selected = (i == selected_die_index and sub_state == "choosing")
+
+        local sel_float = 0
+        if is_selected then
+            sel_float = -4 - 3 * math.sin(t * 3)
+        end
 
         local scale = da.hover_scale * da.pop_scale
         local s = layout.die_size * scale
         local cx = dx + layout.die_size / 2
         local cy = dy + layout.die_size / 2
         local draw_x = cx - s / 2
-        local draw_y = cy - s / 2 + da.y_off + math.sin(love.timer.getTime() * 12 + i) * da.bounce
+        local draw_y = cy - s / 2 + da.y_off + math.sin(t * 12 + i) * da.bounce + sel_float
+
+        if is_selected then
+            local pulse = 0.5 + 0.5 * math.sin(t * 4)
+            love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], 0.15 + 0.1 * pulse)
+            UI.roundRect("fill", draw_x - 6, draw_y - 6, s + 12, s + 12, s * 0.15 + 4)
+        end
 
         UI.drawDie(draw_x, draw_y, s, die.value, dot_color, nil, die.locked, hovered, die.glow_color)
+
+        if is_selected then
+            local pulse = 0.5 + 0.5 * math.sin(t * 4)
+            love.graphics.setLineWidth(2.5)
+            love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], 0.6 + 0.3 * pulse)
+            UI.roundRect("line", draw_x - 3, draw_y - 3, s + 6, s + 6, s * 0.15 + 2)
+            love.graphics.setLineWidth(1)
+        end
 
         if da.lock_flash > 0 then
             love.graphics.setColor(1, 0.3, 0.3, da.lock_flash * 0.3)
@@ -434,6 +487,105 @@ function Round:drawDice(player, W, H)
         if die.ability_name ~= "None" and die.ability_name ~= "Broken" then
             UI.setColor(die.glow_color or UI.colors.accent_dim)
             love.graphics.printf(die.ability_name, dx - 4, dy + layout.die_size + 4 + layout.label_font + 2, layout.die_size + 8, "center")
+        end
+
+        if sub_state == "choosing" then
+            local show_for_hover = hovered
+            local show_for_select = is_selected and tooltip_visible
+            if show_for_hover or show_for_select then
+                tooltip_die = { die = die, index = i, matched = die_matched[i] }
+                tooltip_dx = draw_x
+                tooltip_dy = draw_y
+                tooltip_s = s
+            end
+        end
+    end
+
+    if tooltip_die and preview_hand then
+        self:drawDieTooltip(tooltip_die, tooltip_dx, tooltip_dy, tooltip_s, W, H)
+    end
+end
+
+function Round:drawDieTooltip(info, dx, dy, s, W, H)
+    local die = info.die
+    local is_matched = info.matched
+
+    local tip_w = 210
+    local pad = 10
+
+    local has_ability = die.ability_name ~= "None" and die.ability_name ~= "Broken"
+    local desc_font = Fonts.get(11)
+    local desc_lines = 0
+    if has_ability and die.ability_desc and #die.ability_desc > 0 then
+        local _, wraps = desc_font:getWrap(die.ability_desc, tip_w - pad * 2)
+        desc_lines = #wraps
+    end
+
+    local tip_h = pad + 20
+        + (has_ability and (16 + desc_lines * 13 + 6) or 0)
+        + 2 + 18
+        + (preview_hand and 18 or 0)
+        + pad
+
+    local tip_x = dx + s / 2 - tip_w / 2
+    tip_x = math.max(8, math.min(tip_x, W - tip_w - 8))
+    local tip_y = dy - tip_h - 10
+    if tip_y < 65 then
+        tip_y = dy + s + 10
+    end
+
+    love.graphics.setColor(0.08, 0.08, 0.16, 0.95)
+    UI.roundRect("fill", tip_x, tip_y, tip_w, tip_h, 8)
+
+    local border_color = die.glow_color or UI.colors.accent
+    love.graphics.setLineWidth(1.5)
+    love.graphics.setColor(border_color[1], border_color[2], border_color[3], (border_color[4] or 1) * 0.8)
+    UI.roundRect("line", tip_x, tip_y, tip_w, tip_h, 8)
+    love.graphics.setLineWidth(1)
+
+    local ly = tip_y + pad
+
+    love.graphics.setFont(Fonts.get(15))
+    love.graphics.setColor(border_color[1], border_color[2], border_color[3], border_color[4] or 1)
+    love.graphics.printf(die.name, tip_x + pad, ly, tip_w - pad * 2, "center")
+    ly = ly + 20
+
+    if has_ability then
+        love.graphics.setFont(Fonts.get(12))
+        love.graphics.setColor(border_color[1], border_color[2], border_color[3], (border_color[4] or 1) * 0.7)
+        love.graphics.printf(die.ability_name, tip_x + pad, ly, tip_w - pad * 2, "center")
+        ly = ly + 16
+
+        if die.ability_desc and #die.ability_desc > 0 then
+            love.graphics.setFont(desc_font)
+            UI.setColor(UI.colors.text_dim)
+            love.graphics.printf(die.ability_desc, tip_x + pad, ly, tip_w - pad * 2, "left")
+            ly = ly + desc_lines * 13
+        end
+        ly = ly + 6
+    end
+
+    love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], 0.5)
+    love.graphics.line(tip_x + pad, ly, tip_x + tip_w - pad, ly)
+    ly = ly + 4
+
+    love.graphics.setFont(Fonts.get(13))
+    UI.setColor(UI.colors.text)
+    love.graphics.printf("Value: " .. die.value, tip_x + pad, ly, tip_w - pad * 2, "left")
+
+    if die.locked then
+        UI.setColor(UI.colors.red)
+        love.graphics.printf("LOCKED", tip_x + pad, ly, tip_w - pad * 2, "right")
+    end
+    ly = ly + 18
+
+    if preview_hand then
+        if is_matched then
+            UI.setColor(UI.colors.green)
+            love.graphics.printf("Matched (+" .. die.value .. " to hand)", tip_x + pad, ly, tip_w - pad * 2, "left")
+        else
+            UI.setColor(UI.colors.text_dark)
+            love.graphics.printf("Not matched", tip_x + pad, ly, tip_w - pad * 2, "left")
         end
     end
 end
@@ -573,9 +725,18 @@ function Round:drawActions(player, W, H)
     )
     love.graphics.pop()
 
-    love.graphics.setFont(Fonts.get(14))
+    local kn = Settings.getKeyName
+    local hint = kn(getKeybind("select_next")) .. " Select  |  " ..
+        kn(getKeybind("move_left")) .. "/" .. kn(getKeybind("move_right")) .. " Move  |  " ..
+        kn(getKeybind("toggle_lock")) .. " Lock  |  " ..
+        kn(getKeybind("reroll")) .. " Reroll  |  " ..
+        kn(getKeybind("score")) .. " Score  |  " ..
+        kn(getKeybind("sort_cycle")) .. " Sort  |  " ..
+        kn(getKeybind("show_tooltip")) .. " Info"
+
+    love.graphics.setFont(Fonts.get(13))
     UI.setColor(UI.colors.text_dark)
-    love.graphics.printf("Click dice to lock/unlock  |  1-5 to toggle  |  R to reroll  |  Enter to score  |  Tab to sort", 0, btn_y + btn_h + 12, W, "center")
+    love.graphics.printf(hint, 0, btn_y + btn_h + 12, W, "center")
 end
 
 function Round:drawSortButtons(W, sort_y)
@@ -780,6 +941,10 @@ function Round:drawWildSelector(W, H)
         UI.drawDie(ddx, die_y, die_size, v, UI.colors.die_black, nil, false, hovered, UI.colors.accent)
         self._wild_values[v] = { x = ddx, y = die_y, w = die_size, h = die_size }
     end
+
+    love.graphics.setFont(Fonts.get(13))
+    UI.setColor(UI.colors.text_dark)
+    love.graphics.printf("Press 1-6 to select  |  Esc to cancel", px, py + panel_h - 30, panel_w, "center")
 end
 
 function Round:calculateScore(player)
@@ -827,6 +992,64 @@ function Round:calculateScore(player)
     return score
 end
 
+local function doLockDie(self, player, idx)
+    if boss_context and boss_context.locked_by_boss == idx then
+        Toast.error("Boss locked this die!")
+        return
+    end
+    local die = player.dice_pool[idx]
+    if not die then return end
+
+    if die.die_type == "wild" and not die.locked then
+        wild_selecting = true
+        wild_die_index = idx
+        return
+    end
+
+    player:lockDie(idx)
+    local da = die_anims[idx]
+    if da then
+        da.pop_scale = 1.15
+        da.lock_flash = 1.0
+    end
+    self:updatePreview(player)
+end
+
+local function doReroll(player)
+    if player.rerolls_remaining <= 0 then return false end
+    player:rerollUnlocked()
+    sub_state = "rerolling"
+    return true
+end
+
+local function doScore(self, player)
+    local score = self:calculateScore(player)
+    sub_state = "scoring"
+    score_display_timer = 0
+    score_panel_anim = { alpha = 0, scale = 0.8 }
+    selected_die_index = nil
+    if score >= player:getTargetScore() then
+        currency_earned = player:earnCurrency()
+        local earn_context = { player = player, phase = "earn" }
+        player:applyItems(earn_context)
+    end
+end
+
+local function cycleSortMode(self, player)
+    local current = Settings.get("dice_sort_mode") or "default"
+    local next_mode = sort_modes[1].key
+    for i, mode in ipairs(sort_modes) do
+        if mode.key == current then
+            next_mode = sort_modes[(i % #sort_modes) + 1].key
+            break
+        end
+    end
+    Settings.set("dice_sort_mode", next_mode)
+    Settings.save()
+    self:applySortMode(player)
+    self:updatePreview(player)
+end
+
 function Round:mousepressed(x, y, button, player)
     if button ~= 1 then return nil end
 
@@ -853,24 +1076,8 @@ function Round:mousepressed(x, y, button, player)
         for i, die in ipairs(player.dice_pool) do
             local dx, dy = getDiePosition(layout, i, count)
             if UI.pointInRect(x, y, dx, dy, layout.die_size, layout.die_size) then
-                if boss_context and boss_context.locked_by_boss == i then
-                    Toast.error("Boss locked this die!")
-                    return nil
-                end
-
-                if die.die_type == "wild" and not die.locked then
-                    wild_selecting = true
-                    wild_die_index = i
-                    return nil
-                end
-
-                player:lockDie(i)
-                local da = die_anims[i]
-                if da then
-                    da.pop_scale = 1.15
-                    da.lock_flash = 1.0
-                end
-                self:updatePreview(player)
+                selected_die_index = i
+                doLockDie(self, player, i)
                 return nil
             end
         end
@@ -886,22 +1093,12 @@ function Round:mousepressed(x, y, button, player)
         end
 
         if self._reroll_hovered and player.rerolls_remaining > 0 then
-            player:rerollUnlocked()
-            sub_state = "rerolling"
+            doReroll(player)
             return nil
         end
 
         if self._score_hovered then
-            local score = self:calculateScore(player)
-            sub_state = "scoring"
-            score_display_timer = 0
-            score_panel_anim = { alpha = 0, scale = 0.8 }
-
-            if score >= player:getTargetScore() then
-                currency_earned = player:earnCurrency()
-                local earn_context = { player = player, phase = "earn" }
-                player:applyItems(earn_context)
-            end
+            doScore(self, player)
             return nil
         end
     end
@@ -923,56 +1120,80 @@ function Round:mousepressed(x, y, button, player)
 end
 
 function Round:keypressed(key, player)
-    if wild_selecting and key == "escape" then
-        wild_selecting = false
-        wild_die_index = nil
-        return "handled"
+    if wild_selecting then
+        if key == "escape" then
+            wild_selecting = false
+            wild_die_index = nil
+            return "handled"
+        end
+        local v = tonumber(key)
+        if v and v >= 1 and v <= 6 then
+            player.dice_pool[wild_die_index].value = v
+            player.dice_pool[wild_die_index].wild_choice = v
+            wild_selecting = false
+            wild_die_index = nil
+            self:updatePreview(player)
+            return "handled"
+        end
+        return nil
     end
 
     if sub_state == "choosing" then
-        if key == "tab" then
-            local current = Settings.get("dice_sort_mode") or "default"
-            local next_mode = sort_modes[1].key
-            for i, mode in ipairs(sort_modes) do
-                if mode.key == current then
-                    next_mode = sort_modes[(i % #sort_modes) + 1].key
-                    break
-                end
+        local count = #player.dice_pool
+        local shift_held = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
+
+        if isKey(key, "select_next") and shift_held then
+            if not selected_die_index then
+                selected_die_index = count
+            elseif selected_die_index > 1 then
+                selected_die_index = selected_die_index - 1
+            else
+                selected_die_index = count
             end
-            Settings.set("dice_sort_mode", next_mode)
-            Settings.save()
-            self:applySortMode(player)
-            self:updatePreview(player)
-        elseif key == "r" and player.rerolls_remaining > 0 then
-            player:rerollUnlocked()
-            sub_state = "rerolling"
-        elseif key == "s" or key == "return" then
-            local score = self:calculateScore(player)
-            sub_state = "scoring"
-            score_display_timer = 0
-            if score >= player:getTargetScore() then
-                currency_earned = player:earnCurrency()
-                local earn_context = { player = player, phase = "earn" }
-                player:applyItems(earn_context)
+        elseif isKey(key, "select_next") then
+            if not selected_die_index then
+                selected_die_index = 1
+            else
+                selected_die_index = (selected_die_index % count) + 1
             end
+        elseif isKey(key, "show_tooltip") then
+            tooltip_visible = not tooltip_visible
+        elseif isKey(key, "move_left") then
+            if not selected_die_index then
+                selected_die_index = count
+            elseif selected_die_index > 1 then
+                selected_die_index = selected_die_index - 1
+            else
+                selected_die_index = count
+            end
+        elseif isKey(key, "move_right") then
+            if not selected_die_index then
+                selected_die_index = 1
+            elseif selected_die_index < count then
+                selected_die_index = selected_die_index + 1
+            else
+                selected_die_index = 1
+            end
+        elseif isKey(key, "toggle_lock") then
+            if selected_die_index and selected_die_index >= 1 and selected_die_index <= count then
+                doLockDie(self, player, selected_die_index)
+            end
+        elseif isKey(key, "reroll") then
+            doReroll(player)
+        elseif isKey(key, "score") then
+            doScore(self, player)
+        elseif isKey(key, "sort_cycle") then
+            cycleSortMode(self, player)
         elseif tonumber(key) then
             local idx = tonumber(key)
-            if idx >= 1 and idx <= #player.dice_pool then
-                if boss_context and boss_context.locked_by_boss == idx then
-                    Toast.error("Boss locked this die!")
-                else
-                    player:lockDie(idx)
-                    local da = die_anims[idx]
-                    if da then
-                        da.pop_scale = 1.15
-                        da.lock_flash = 1.0
-                    end
-                    self:updatePreview(player)
-                end
+            if idx == 0 then idx = 10 end
+            if idx >= 1 and idx <= count then
+                selected_die_index = idx
+                doLockDie(self, player, idx)
             end
         end
     elseif sub_state == "scoring" and score_display_timer > 2.0 then
-        if key == "return" or key == "space" then
+        if key == "return" or key == "space" or isKey(key, "score") then
             if round_score >= player:getTargetScore() then
                 return "to_shop"
             else

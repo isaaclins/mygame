@@ -11,6 +11,39 @@ local defaults = {
     vsync = true,
     fullscreen = false,
     dice_sort_mode = "default",
+    keybind_select_next = "tab",
+    keybind_move_left = "left",
+    keybind_move_right = "right",
+    keybind_toggle_lock = "space",
+    keybind_reroll = "r",
+    keybind_score = "return",
+    keybind_sort_cycle = "q",
+    keybind_show_tooltip = "e",
+}
+
+local key_display = {
+    ["return"] = "Enter",
+    ["space"] = "Space",
+    ["tab"] = "Tab",
+    ["escape"] = "Esc",
+    ["left"] = "Left",
+    ["right"] = "Right",
+    ["up"] = "Up",
+    ["down"] = "Down",
+    ["lshift"] = "LShift",
+    ["rshift"] = "RShift",
+    ["lctrl"] = "LCtrl",
+    ["rctrl"] = "RCtrl",
+    ["lalt"] = "LAlt",
+    ["ralt"] = "RAlt",
+    ["backspace"] = "Bksp",
+    ["delete"] = "Del",
+    ["capslock"] = "Caps",
+    ["insert"] = "Ins",
+    ["home"] = "Home",
+    ["end"] = "End",
+    ["pageup"] = "PgUp",
+    ["pagedown"] = "PgDn",
 }
 
 local current = {}
@@ -25,6 +58,11 @@ end
 
 function Settings.set(key, value)
     current[key] = value
+end
+
+function Settings.getKeyName(key)
+    if not key then return "None" end
+    return key_display[key] or key:upper()
 end
 
 function Settings.save()
@@ -58,6 +96,14 @@ end
 function Settings.reset()
     for k, v in pairs(defaults) do
         current[k] = v
+    end
+end
+
+function Settings.resetKeybinds()
+    for k, v in pairs(defaults) do
+        if k:sub(1, 8) == "keybind_" then
+            current[k] = v
+        end
     end
 end
 
