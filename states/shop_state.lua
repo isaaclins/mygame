@@ -243,20 +243,19 @@ function ShopState:drawShopHandReference(player, W, H)
     local section_w = W / 3 - 30
     local section_h = H - 250
 
-    local dice_count = #player.dice_pool
     shop_visible_hands = {}
     local upgrade_index_map = {}
-    for _, hand in ipairs(player.hands) do
-        if (hand.min_dice or 1) <= dice_count then
-            table.insert(shop_visible_hands, hand)
-        end
-    end
     for i, upgrade in ipairs(shop.hand_upgrades) do
+        table.insert(shop_visible_hands, upgrade.hand)
         upgrade_index_map[upgrade.hand] = i
     end
 
-    local line_h = #shop_visible_hands > 12 and 26 or 32
-    local font_size = #shop_visible_hands > 12 and 11 or 13
+    local count = #shop_visible_hands
+    local header_h = 36
+    local avail_h = section_h - header_h - 8
+    local line_h = math.max(24, math.min(36, math.floor(avail_h / math.max(count, 1))))
+    local name_font = line_h >= 30 and 13 or 11
+    local stat_font = line_h >= 30 and 11 or 10
 
     love.graphics.setColor(1, 1, 1, sa.alpha)
     UI.drawPanel(section_x, section_y, section_w, section_h, { border = UI.colors.panel_light })
@@ -267,46 +266,60 @@ function ShopState:drawShopHandReference(player, W, H)
 
     self._hand_ref_buttons = {}
     local mx, my = love.mouse.getPosition()
+    local hovered_hand = nil
+    local hovered_hand_y = 0
 
     for i, hand in ipairs(shop_visible_hands) do
-        local y = section_y + 40 + (i - 1) * line_h
+        local y = section_y + header_h + (i - 1) * line_h
         if y + line_h > section_y + section_h then break end
 
         local maxed = hand.upgrade_level >= hand.max_upgrade
         local upgrade_idx = upgrade_index_map[hand]
         local can_upgrade = upgrade_idx and not maxed
+        local can_afford = can_upgrade and (not shop.free_choice_used or player.currency >= hand:getUpgradeCost())
         local hovered = UI.pointInRect(mx, my, section_x + 4, y, section_w - 8, line_h)
+        local is_focused = shop_mode == "grid" and shop_col == 3 and shop_row == i and not replacing_die
 
-        if hovered then
+        if hovered or is_focused then
             love.graphics.setColor(1, 1, 1, 0.08 * sa.alpha)
+            UI.roundRect("fill", section_x + 4, y, section_w - 8, line_h, 3)
+            hovered_hand = hand
+            hovered_hand_y = y
+        end
+
+        if can_afford then
+            love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], 0.12 * sa.alpha)
             UI.roundRect("fill", section_x + 4, y, section_w - 8, line_h, 3)
         end
 
-        local is_focused = shop_mode == "grid" and shop_col == 3 and shop_row == i and not replacing_die
         if is_focused then
             UI.drawFocusRect(section_x + 4, y, section_w - 8, line_h)
         end
 
-        love.graphics.setFont(Fonts.get(font_size))
-
-        if hand.upgrade_level > 0 then
+        love.graphics.setFont(Fonts.get(name_font))
+        if can_afford then
+            love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], sa.alpha)
+        elseif can_upgrade and not can_afford then
+            love.graphics.setColor(UI.colors.red[1], UI.colors.red[2], UI.colors.red[3], sa.alpha * 0.7)
+        elseif hand.upgrade_level > 0 then
             love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], sa.alpha)
         elseif hovered or is_focused then
             love.graphics.setColor(1, 1, 1, sa.alpha)
         else
             love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], sa.alpha)
         end
-        love.graphics.print(hand.name, section_x + 10, y + 2)
 
-        love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], sa.alpha * 0.8)
-        love.graphics.printf(hand:getDisplayScore(), section_x, y + 2, section_w - 10, "right")
+        local name_text = hand.name
+        if hand.upgrade_level > 0 then
+            name_text = name_text .. " Lv." .. hand.upgrade_level
+        end
+        love.graphics.print(name_text, section_x + 10, y + 2)
 
-        if (hovered or is_focused) and can_upgrade then
-            local cost_y = y + 2 + (font_size + 2)
+        love.graphics.setFont(Fonts.get(stat_font))
+        if can_upgrade then
             if not shop.free_choice_used then
                 love.graphics.setColor(UI.colors.free_badge[1], UI.colors.free_badge[2], UI.colors.free_badge[3], sa.alpha)
-                love.graphics.setFont(Fonts.get(10))
-                love.graphics.printf("FREE UPGRADE", section_x + 10, cost_y, section_w - 20, "left")
+                love.graphics.printf("FREE", section_x, y + 2, section_w - 10, "right")
             else
                 local live_cost = hand:getUpgradeCost()
                 local can_afford = player.currency >= live_cost
@@ -315,14 +328,25 @@ function ShopState:drawShopHandReference(player, W, H)
                 else
                     love.graphics.setColor(UI.colors.red[1], UI.colors.red[2], UI.colors.red[3], sa.alpha)
                 end
-                love.graphics.setFont(Fonts.get(10))
-                love.graphics.printf("Upgrade $" .. live_cost, section_x + 10, cost_y, section_w - 20, "left")
+                love.graphics.printf("$" .. live_cost, section_x, y + 2, section_w - 10, "right")
             end
-        elseif (hovered or is_focused) and maxed then
-            local cost_y = y + 2 + (font_size + 2)
-            love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], sa.alpha)
-            love.graphics.setFont(Fonts.get(10))
-            love.graphics.printf("MAXED", section_x + 10, cost_y, section_w - 20, "left")
+        elseif maxed then
+            love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], sa.alpha * 0.6)
+            love.graphics.printf("MAX", section_x, y + 2, section_w - 10, "right")
+        else
+            love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], sa.alpha * 0.7)
+            love.graphics.printf(hand:getDisplayScore(), section_x, y + 2, section_w - 10, "right")
+        end
+
+        local sub_y = y + 2 + (name_font + 2)
+        if sub_y + stat_font < y + line_h then
+            love.graphics.setFont(Fonts.get(stat_font))
+            love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], sa.alpha * 0.8)
+            love.graphics.printf(hand:getDisplayScore(), section_x + 10, sub_y, section_w - 20, "left")
+            if can_upgrade then
+                love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], sa.alpha * 0.5)
+                love.graphics.printf("click to upgrade", section_x, sub_y, section_w - 10, "right")
+            end
         end
 
         self._hand_ref_buttons[i] = {
@@ -330,6 +354,48 @@ function ShopState:drawShopHandReference(player, W, H)
             hovered = hovered, upgrade_idx = upgrade_idx, can_upgrade = can_upgrade,
         }
     end
+
+    if hovered_hand then
+        self:drawShopHandTooltip(hovered_hand, section_x, section_y, hovered_hand_y)
+    end
+end
+
+function ShopState:drawShopHandTooltip(hand, ref_x, ref_y, row_y)
+    local example = hand_examples[hand.name]
+    if not example then return end
+
+    local die_size = 28
+    local die_gap = 6
+    local dice_row_w = #example * die_size + (#example - 1) * die_gap
+    local pad = 12
+    local tip_w = math.max(dice_row_w + pad * 2, 180)
+    local tip_h = die_size + pad * 2 + 52
+
+    local tip_x = ref_x - tip_w - 8
+    local tip_y = math.max(ref_y, math.min(row_y - tip_h / 2 + 12, love.graphics.getHeight() - tip_h - 10))
+
+    love.graphics.setColor(0.08, 0.08, 0.16, 0.95)
+    UI.roundRect("fill", tip_x, tip_y, tip_w, tip_h, 8)
+    UI.setColor(UI.colors.accent)
+    love.graphics.setLineWidth(1.5)
+    UI.roundRect("line", tip_x, tip_y, tip_w, tip_h, 8)
+    love.graphics.setLineWidth(1)
+
+    love.graphics.setFont(Fonts.get(13))
+    UI.setColor(UI.colors.accent)
+    love.graphics.printf(hand.name, tip_x, tip_y + 8, tip_w, "center")
+
+    local dice_x = tip_x + (tip_w - dice_row_w) / 2
+    local dice_y = tip_y + 28
+
+    for i, val in ipairs(example) do
+        local ddx = dice_x + (i - 1) * (die_size + die_gap)
+        UI.drawDie(ddx, dice_y, die_size, val, UI.colors.die_black)
+    end
+
+    love.graphics.setFont(Fonts.get(11))
+    UI.setColor(UI.colors.text_dim)
+    love.graphics.printf(hand:getDisplayScore(), tip_x, tip_y + tip_h - 20, tip_w, "center")
 end
 
 function ShopState:drawDiceSection(player, W, H)
