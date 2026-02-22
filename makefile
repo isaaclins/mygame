@@ -13,7 +13,7 @@ LOVE_MACOS_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSIO
 LOVE_WIN64_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSION)/love-$(LOVE_VERSION)-win64.zip
 LOVE_LINUX_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSION)/love-$(LOVE_VERSION)-x86_64.AppImage
 
-EXCLUDE := -x './$(BUILD_DIR)/*' './.git/*' './.vscode/*' './makefile' './README.md' './.DS_Store' './.gitignore'
+EXCLUDE := -x './$(BUILD_DIR)/*' './.git/*' './.github/*' './.vscode/*' './makefile' './README.md' './.DS_Store' './.gitignore'
 
 .PHONY: build build-all build-macos build-windows build-linux love run dev clean clean-all help
 

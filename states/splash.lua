@@ -2,6 +2,7 @@ local UI = require("functions/ui")
 local Fonts = require("functions/fonts")
 local SaveLoad = require("functions/saveload")
 local Tween = require("functions/tween")
+local Updater = require("functions/updater")
 
 local Splash = {}
 
@@ -223,11 +224,36 @@ function Splash:draw()
     love.graphics.setFont(Fonts.get(14))
     love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], footer_anim.alpha)
     love.graphics.printf("Roll. Lock. Score. Survive.", 0, H - 40, W, "center")
+
+    local ver_font = Fonts.get(13)
+    love.graphics.setFont(ver_font)
+    love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], footer_anim.alpha * 0.6)
+    love.graphics.print("v" .. Updater.getVersion(), 12, H - 40)
+
+    self._update_hovered = false
+    if Updater.isUpdateAvailable() then
+        local update_font = Fonts.get(14)
+        love.graphics.setFont(update_font)
+        local update_text = "v" .. Updater.getLatestVersion() .. " available — click to download"
+        local tw = update_font:getWidth(update_text)
+        local tx = W - tw - 14
+        local ty = H - 26
+
+        local mx, my = love.mouse.getPosition()
+        self._update_hovered = mx >= tx and mx <= tx + tw and my >= ty and my <= ty + update_font:getHeight()
+
+        local alpha = self._update_hovered and footer_anim.alpha or (footer_anim.alpha * 0.8)
+        love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], alpha)
+        love.graphics.print(update_text, tx, ty)
+    end
 end
 
 function Splash:mousepressed(x, y, button)
     if button == 1 then
-        if self._continue_hovered then
+        if self._update_hovered and Updater.isUpdateAvailable() then
+            Updater.openDownloadPage()
+            return nil
+        elseif self._continue_hovered then
             return "continue_game"
         elseif self._new_game_hovered then
             return "start_game"

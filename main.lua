@@ -12,6 +12,7 @@ local Particles = require("functions/particles")
 local Transition = require("functions/transition")
 local Toast = require("functions/toast")
 local Fonts = require("functions/fonts")
+local Updater = require("functions/updater")
 
 local Splash = require("states/splash")
 local SeedInput = require("states/seed_input")
@@ -162,6 +163,7 @@ function love.load()
     _G.game_save_hook = saveGame
     require("functions/window")
 
+    Updater.check()
     Splash:init()
 end
 
@@ -191,6 +193,10 @@ function love.update(dt)
     Tween.update(dt)
     Particles.update(dt)
     Toast.update(dt)
+
+    if Updater.update() then
+        Toast.info("New version available: v" .. Updater.getLatestVersion())
+    end
 
     if unfocused and Settings.get("pause_on_unfocus") then return end
     if paused and state ~= "settings" then return end
