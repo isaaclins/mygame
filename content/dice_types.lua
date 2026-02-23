@@ -32,24 +32,9 @@ local function createDiceTypes()
             name = "Glass Die",
             color = "red",
             die_type = "glass",
-            ability_name = "Fragile Fortune",
-            ability_desc = "Adds bonus +10 to score, but has a 20% chance to break (become Normal).",
+            ability_name = "Glass Cannon",
+            ability_desc = "x1.5 score mult when scored with. 10% to shatter on reroll.",
             glow_color = { 1.0, 0.3, 0.3, 0.6 },
-            ability = function(self, context)
-                if context and context.scoring then
-                    context.bonus = (context.bonus or 0) + 10 + self.upgrade_level * 5
-                    if RNG.random() < 0.2 then
-                        self.die_type = "Normal"
-                        self.ability = nil
-                        self.ability_name = "Broken"
-                        self.ability_desc = "This die has shattered."
-                        self.glow_color = nil
-                        self.name = "Broken Die"
-                        return "broke"
-                    end
-                end
-                return "bonus"
-            end,
         }),
         Die:new({
             name = "Odd Die",

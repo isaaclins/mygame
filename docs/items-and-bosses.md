@@ -85,9 +85,9 @@ Fires during the currency-earning phase. A flat +3 per round regardless of perfo
 | Property | Value |
 |----------|-------|
 | Trigger | Passive (round_start) |
-| Effect | Prevents the first Glass Die from breaking this round |
+| Effect | Prevents the first Glass Die shatter per round |
 
-Sets a flag that the break mechanic checks. If a Glass Die would shatter, the flag is consumed instead and the die survives. Only protects one die per round — if you have multiple Glass Dice, subsequent ones can still break.
+When a Glass Die would shatter on reroll, Insurance consumes itself for the round and prevents the break. Only protects one shatter per round — if multiple Glass Dice trigger in the same round, subsequent ones can still break.
 
 ---
 
@@ -260,7 +260,7 @@ With the default 3 rerolls, you're left with just 1. With the Extra Reroll item 
 
 **Revert:** Removes the suppression flag.
 
-This disables: Glass Die bonus, Odd/Even Die bonus, Echo copying, Mirror flipping (ability is suppressed, so no post-roll flip). However, weight tables are still in effect (Light Die still only rolls 1-3, Heavy Die still only rolls 3-6, Loaded Dice item still applies).
+This disables: Glass Die x1.5 multiplier, Odd/Even Die bonus, Echo copying, Mirror flipping (ability is suppressed, so no post-roll flip). However, weight tables are still in effect (Light Die still only rolls 1-3, Heavy Die still only rolls 3-6, Loaded Dice item still applies). Glass Dice can still shatter on reroll since breaking is independent of abilities.
 
 **Counter-play:** Rely on hand strength and hand upgrades rather than dice abilities. Items still work normally (Even Steven, Odd Todd, High Roller, etc.).
 

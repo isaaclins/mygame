@@ -35,6 +35,7 @@ local round_combo = {}
 local round_hand_total = 0
 local round_bonus = 0
 local round_mult_bonus = 0
+local round_score_mult = 1
 local currency_earned = 0
 local currency_breakdown = {}
 local wild_selecting = false
@@ -46,6 +47,7 @@ local preview_combo = {}
 local preview_score = 0
 local preview_bonus = 0
 local preview_mult_bonus = 0
+local preview_score_mult = 1
 local selected_die_index = nil
 local tooltip_visible = true
 local last_input_keyboard = false
@@ -352,13 +354,12 @@ function Round:updatePreview(player)
         scoring = true,
         bonus = 0,
         mult_bonus = 0,
+        score_mult = 1,
     }
 
     if not (boss_context and boss_context.suppress_abilities) then
         for _, die in ipairs(player.dice_pool) do
-            if die.die_type == "glass" and die.ability then
-                context.bonus = context.bonus + 10 + die.upgrade_level * 5
-            elseif die.ability and die.die_type ~= "echo" then
+            if die.ability and die.die_type ~= "echo" and die.die_type ~= "glass" then
                 die:triggerAbility(context)
             end
         end
@@ -375,12 +376,34 @@ function Round:updatePreview(player)
 
     local combo, hand_total = Scoring.findOptimalCombination(values, player.hands)
     preview_combo = combo
+
+    if not (boss_context and boss_context.suppress_abilities) then
+        local matched_counts = {}
+        for _, entry in ipairs(combo) do
+            for _, v in ipairs(entry.matched) do
+                matched_counts[v] = (matched_counts[v] or 0) + 1
+            end
+        end
+        for _, die in ipairs(player.dice_pool) do
+            if die.die_type == "glass" then
+                if (matched_counts[die.value] or 0) > 0 then
+                    context.score_mult = context.score_mult * 1.5
+                    matched_counts[die.value] = matched_counts[die.value] - 1
+                end
+            end
+        end
+    end
+
     preview_bonus = context.bonus or 0
     preview_mult_bonus = context.mult_bonus or 0
+    preview_score_mult = context.score_mult or 1
 
     local score = hand_total + preview_bonus
     if preview_mult_bonus > 0 then
         score = math.floor(score * (1 + preview_mult_bonus))
+    end
+    if preview_score_mult > 1 then
+        score = math.floor(score * preview_score_mult)
     end
     preview_score = score
 end
@@ -391,7 +414,8 @@ function Round:drawScorePreview(player, W, H)
 
     local has_bonus = preview_bonus > 0
     local has_mult = preview_mult_bonus > 0
-    local extra_lines = (has_bonus and 1 or 0) + (has_mult and 1 or 0)
+    local has_glass = preview_score_mult > 1
+    local extra_lines = (has_bonus and 1 or 0) + (has_mult and 1 or 0) + (has_glass and 1 or 0)
     local hand_count = #preview_combo
 
     local panel_x = 10 + preview_panel_anim.x_off
@@ -437,6 +461,12 @@ function Round:drawScorePreview(player, W, H)
         love.graphics.printf("Item mult: x" .. string.format("%.1f", 1 + preview_mult_bonus), panel_x + 12, ly, panel_w - 24, "left")
         ly = ly + 18
     end
+    if has_glass then
+        love.graphics.setFont(Fonts.get(12))
+        love.graphics.setColor(1.0, 0.3, 0.3, preview_panel_anim.alpha)
+        love.graphics.printf("Glass: x" .. string.format("%.2g", preview_score_mult), panel_x + 12, ly, panel_w - 24, "left")
+        ly = ly + 18
+    end
 
     love.graphics.setFont(Fonts.get(24))
     love.graphics.setColor(1, 1, 1, preview_panel_anim.alpha)
@@ -462,7 +492,8 @@ function Round:drawBulkWildButton(player, W, H)
 
     local has_bonus = preview_bonus > 0
     local has_mult = preview_mult_bonus > 0
-    local extra_lines = (has_bonus and 1 or 0) + (has_mult and 1 or 0)
+    local has_glass = preview_score_mult > 1
+    local extra_lines = (has_bonus and 1 or 0) + (has_mult and 1 or 0) + (has_glass and 1 or 0)
     local hand_count = #preview_combo
     local preview_bottom = 70 + 56 + hand_count * 20 + 10 + extra_lines * 18 + 36
 
@@ -1090,7 +1121,7 @@ function Round:drawScoring(player, W, H)
 
     local panel_w = 420
     local hand_section_h = combo_count * 22 + 8
-    local bonus_section_h = (round_bonus > 0 and 16 or 0) + (round_mult_bonus > 0 and 16 or 0)
+    local bonus_section_h = (round_bonus > 0 and 16 or 0) + (round_mult_bonus > 0 and 16 or 0) + (round_score_mult > 1 and 16 or 0)
     local panel_h
     if won and bd_count > 0 then
         panel_h = 14 + hand_section_h + bonus_section_h + 60 + 28
@@ -1143,6 +1174,12 @@ function Round:drawScoring(player, W, H)
         local mb_str = (1 + round_mult_bonus) >= 1e3 and UI.abbreviate(1 + round_mult_bonus) or string.format("%.1f", 1 + round_mult_bonus)
         love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], 0.8)
         love.graphics.printf("x " .. mb_str .. " item mult", px + pad_x, ly, panel_w - pad_x * 2, "left")
+        ly = ly + 16
+    end
+    if round_score_mult > 1 then
+        local gm_str = string.format("%.2g", round_score_mult)
+        love.graphics.setColor(1.0, 0.3, 0.3, 0.8)
+        love.graphics.printf("x " .. gm_str .. " glass mult", px + pad_x, ly, panel_w - pad_x * 2, "left")
         ly = ly + 16
     end
 
@@ -1307,6 +1344,7 @@ function Round:calculateScore(player)
         scoring = true,
         bonus = 0,
         mult_bonus = 0,
+        score_mult = 1,
     }
 
     dice_ability_results = {}
@@ -1314,7 +1352,7 @@ function Round:calculateScore(player)
         local ability_counts = {}
         local ability_order = {}
         for _, die in ipairs(player.dice_pool) do
-            if die.ability and die.die_type ~= "echo" then
+            if die.ability and die.die_type ~= "echo" and die.die_type ~= "glass" then
                 local result = die:triggerAbility(context)
                 if result then
                     local key = die.name .. ": " .. result
@@ -1341,12 +1379,38 @@ function Round:calculateScore(player)
     round_combo = combo
     round_hand_total = hand_total
 
+    if not (boss_context and boss_context.suppress_abilities) then
+        local matched_counts = {}
+        for _, entry in ipairs(combo) do
+            for _, v in ipairs(entry.matched) do
+                matched_counts[v] = (matched_counts[v] or 0) + 1
+            end
+        end
+        local glass_scored = 0
+        for _, die in ipairs(player.dice_pool) do
+            if die.die_type == "glass" then
+                if (matched_counts[die.value] or 0) > 0 then
+                    context.score_mult = context.score_mult * 1.5
+                    matched_counts[die.value] = matched_counts[die.value] - 1
+                    glass_scored = glass_scored + 1
+                end
+            end
+        end
+        if glass_scored > 0 then
+            table.insert(dice_ability_results, "Glass Die: x1.5" .. (glass_scored > 1 and (" x" .. glass_scored) or ""))
+        end
+    end
+
     round_bonus = context.bonus or 0
     round_mult_bonus = context.mult_bonus or 0
+    round_score_mult = context.score_mult or 1
 
     local score = hand_total + round_bonus
     if round_mult_bonus > 0 then
         score = math.floor(score * (1 + round_mult_bonus))
+    end
+    if round_score_mult > 1 then
+        score = math.floor(score * round_score_mult)
     end
 
     round_score = score
@@ -1386,8 +1450,35 @@ local function doLockDie(self, player, idx)
     if Tutorial:isActive() then Tutorial:notifyAction("lock") end
 end
 
+local RNG = require("functions/rng")
+
 local function doReroll(player)
     if player.rerolls_remaining <= 0 then return false end
+
+    for _, die in ipairs(player.dice_pool) do
+        if not die.locked and die.die_type == "glass" then
+            if RNG.random() < 0.10 then
+                local insured = false
+                for _, item in ipairs(player.items) do
+                    if item.name == "Insurance" and not item.triggered_this_round then
+                        item.triggered_this_round = true
+                        insured = true
+                        break
+                    end
+                end
+                if not insured then
+                    die.die_type = "broken"
+                    die.ability = nil
+                    die.ability_name = "Broken"
+                    die.ability_desc = "This die has shattered. Only rolls 1s."
+                    die.glow_color = nil
+                    die.name = "Broken Die"
+                    die.weights = { 1, 0, 0, 0, 0, 0 }
+                end
+            end
+        end
+    end
+
     player:rerollUnlocked()
     sub_state = "rerolling"
     if Tutorial:isActive() then Tutorial:notifyAction("reroll") end

@@ -69,6 +69,8 @@ function Die:updateRoll(dt)
         self.value = math.random(1, 3)
     elseif self.die_type == "heavy" then
         self.value = math.random(3, 6)
+    elseif self.die_type == "broken" then
+        self.value = 1
     else
         self.value = math.random(1, 6)
     end

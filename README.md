@@ -137,7 +137,7 @@ All hands can be upgraded up to level 5 in the shop (+30% base score and +0.5 mu
 | Normal | — | Standard die, equal odds |
 | Light | Featherweight | Only rolls 1, 2, or 3 |
 | Heavy | Heavyweight | Only rolls 3, 4, 5, or 6 |
-| Glass | Fragile Fortune | +10 bonus to score, but 20% chance to shatter |
+| Glass | Glass Cannon | x1.5 score mult when scored with, 10% shatter on reroll |
 | Odd | Odd Synergy | +5 bonus when landing on an odd value |
 | Even | Even Synergy | +5 bonus when landing on an even value |
 | Wild | Wild Card | You choose its value each round |

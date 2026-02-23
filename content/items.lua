@@ -65,14 +65,11 @@ local function createItems()
         }),
         Item:new({
             name = "Insurance",
-            description = "Protects the first Glass Die from breaking",
+            description = "Prevents the first Glass Die shatter per round",
             icon = "!",
             cost = 12,
             trigger_type = "passive",
             effect = function(self, context)
-                if context and context.glass_break then
-                    context.glass_break = false
-                end
             end,
         }),
         Item:new({

@@ -235,21 +235,14 @@ Can only roll 3, 4, 5, or 6. The higher floor makes it excellent for N-of-a-Kind
 |----------|-------|
 | Color | Red |
 | Weights | {1, 1, 1, 1, 1, 1} |
-| Ability | Fragile Fortune |
-| Glow | Red (1.0, 0.3, 0.3, 0.2) |
+| Ability | Glass Cannon |
+| Glow | Red (1.0, 0.3, 0.3, 0.6) |
 
-**Scoring bonus:** +10 flat bonus (+5 per upgrade level).
+**Score multiplier:** Multiplies the total score by x1.5, but **only if the Glass Die's value is part of a scored hand**. If the die isn't used in any hand, no multiplier is applied. Multiple Glass Dice stack multiplicatively (2 scored Glass Dice = x2.25).
 
-**Break mechanic:** 20% chance to shatter after each round. When a Glass Die breaks, it permanently becomes a Normal Die (type, name, color, ability, glow, and weights all reset).
+**Break mechanic:** 10% chance to shatter each time the die is **rerolled**. Locking a Glass Die protects it from breaking. When a Glass Die breaks, it permanently becomes a Broken Die that can only roll 1s (weights reset to `{1, 0, 0, 0, 0, 0}`).
 
-The Insurance item prevents the first Glass Die break per round.
-
-| Upgrade Level | Bonus |
-|---------------|-------|
-| 0 | +10 |
-| 1 | +15 |
-| 2 | +20 |
-| 3 | +25 |
+The Insurance item prevents the first Glass Die shatter per round.
 
 ---
 
@@ -348,9 +341,8 @@ Dice can be upgraded in the shop up to their `max_upgrade` (default 3). Upgrades
 
 | Die | Upgrade Effect |
 |-----|----------------|
-| Glass | +5 bonus per level |
 | Odd | +3 bonus per level (when triggering) |
 | Even | +3 bonus per level (when triggering) |
-| Normal, Light, Heavy, Wild, Mirror, Echo | No upgrade bonus (abilities are stat-independent) |
+| Normal, Light, Heavy, Glass, Wild, Mirror, Echo | No upgrade bonus (abilities are stat-independent) |
 
 Upgrade cost is included in the die's shop price: `8 + upgrade_level × 4`.

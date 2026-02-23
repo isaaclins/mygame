@@ -243,7 +243,7 @@ Currency is abundant but targets are extreme:
 | Hand upgrade 0→1 | $5 | +30% base, +0.5 mult | Immediate scoring boost |
 | Extra Reroll | $10 | +1 reroll/round | Better hand selection |
 | Extra die slot (6th) | $15 | Access to 6-dice hands | Unlocks Full Run, Two Triplets, etc. |
-| Glass Die | $8 | +10 per round (until it breaks) | High variance, avg ~4 rounds |
+| Glass Die | $8 | x1.5 score mult when scored, 10% shatter on reroll | Lock to protect, reroll at your peril |
 
 ---
 

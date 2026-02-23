@@ -129,6 +129,7 @@ function Player:sortDice(mode)
         end)
     elseif mode == "combo" then
         table.sort(self.dice_pool, function(a, b)
+            if a.locked ~= b.locked then return a.locked end
             local ac = a._combo_index or 999
             local bc = b._combo_index or 999
             if ac ~= bc then return ac < bc end
