@@ -22,7 +22,7 @@ Let Die Ride! is a roguelike deckbuilder — except instead of cards, you roll d
 ## Features
 
 - **17 scorable hands** from High Roll to the elusive Pyramid
-- **8 unique dice types** — Weighted, Glass, Wild, Mirror, Echo, and more
+- **9 unique dice types** — Light, Heavy, Glass, Wild, Mirror, Echo, and more
 - **7 collectible items** that alter scoring, economy, and dice behavior
 - **5 boss encounters** every 4th round that twist the rules
 - **Seeded runs** — share a seed, get the same game
@@ -135,7 +135,8 @@ All hands can be upgraded up to level 5 in the shop (+30% base score and +0.5 mu
 | Die | Ability | Description |
 |-----|---------|-------------|
 | Normal | — | Standard die, equal odds |
-| Weighted | Heavy Hitter | Favors higher values (4, 5, 6) |
+| Light | Featherweight | Only rolls 1, 2, or 3 |
+| Heavy | Heavyweight | Only rolls 3, 4, 5, or 6 |
 | Glass | Fragile Fortune | +10 bonus to score, but 20% chance to shatter |
 | Odd | Odd Synergy | +5 bonus when landing on an odd value |
 | Even | Even Synergy | +5 bonus when landing on an even value |

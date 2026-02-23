@@ -213,7 +213,7 @@ This is applied **after** the normal roll, so:
 
 **Revert:** Removes the inversion flag.
 
-**Counter-play:** Mirror Dice cancel the effect. Weighted Dice (biased toward high values) become biased toward low values under The Inverter.
+**Counter-play:** Mirror Dice cancel the effect. Heavy Dice (restricted to 3-6) become effectively weaker since inverted values land in the 1-4 range. Light Dice (restricted to 1-3) benefit since inverted values land in the 4-6 range.
 
 ---
 
@@ -260,7 +260,7 @@ With the default 3 rerolls, you're left with just 1. With the Extra Reroll item 
 
 **Revert:** Removes the suppression flag.
 
-This disables: Glass Die bonus, Odd/Even Die bonus, Echo copying, Mirror flipping (ability is suppressed, so no post-roll flip). However, weight tables are still in effect (Weighted Die still rolls with bias, Loaded Dice item still applies).
+This disables: Glass Die bonus, Odd/Even Die bonus, Echo copying, Mirror flipping (ability is suppressed, so no post-roll flip). However, weight tables are still in effect (Light Die still only rolls 1-3, Heavy Die still only rolls 3-6, Loaded Dice item still applies).
 
 **Counter-play:** Rely on hand strength and hand upgrades rather than dice abilities. Items still work normally (Even Steven, Odd Todd, High Roller, etc.).
 

@@ -123,9 +123,9 @@ return {
     currency = 42,
     base_rerolls = 3,
     dice = {
-        { name = "Weighted Die", color = "blue", die_type = "Weighted",
-          value = 4, weights = {0.5, 0.5, 0.8, 1.2, 1.5, 1.8},
-          glow_color = {0.3, 0.5, 1.0, 0.25}, sort_order = 1,
+        { name = "Heavy Die", color = "blue", die_type = "heavy",
+          value = 4, weights = {0, 0, 1, 1, 1, 1},
+          glow_color = {0.2, 0.25, 0.7, 0.6}, sort_order = 1,
           upgrade_level = 1 },
         -- ... more dice
     },

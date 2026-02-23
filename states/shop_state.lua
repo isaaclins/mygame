@@ -743,7 +743,7 @@ function ShopState:mousepressed(x, y, button, player)
         if #player.dice_pool >= player.max_dice then
             Toast.error("Dice pool is full! (max " .. player.max_dice .. ")")
         elseif player.currency < cost then
-            Toast.error("Not enough currency! ($" .. cost .. " needed)")
+            Toast.error("Not enough currency! ")
         else
             player.currency = player.currency - cost
             local Die = require("objects/die")
@@ -771,8 +771,14 @@ function ShopState:mousepressed(x, y, button, player)
 
     for i, btn in pairs(self._dice_buttons or {}) do
         if btn.hovered then
+            local entry = shop.dice_inventory[i]
+            if shop.free_choice_used and player.currency < entry.cost then
+                Toast.error("Not enough currency!)")
+                return nil
+            end
             replacing_die = true
             selected_shop_die = i
+            replace_focus = 1
             return nil
         end
     end
@@ -906,9 +912,14 @@ function ShopState:keypressed(key, player)
             end
         elseif key == "return" or key == "space" then
             if shop_col == 1 and shop_row >= 1 and shop_row <= #shop.dice_inventory then
-                replacing_die = true
-                selected_shop_die = shop_row
-                replace_focus = 1
+                local entry = shop.dice_inventory[shop_row]
+                if shop.free_choice_used and player.currency < entry.cost then
+                    Toast.error("Not enough currency!)")
+                else
+                    replacing_die = true
+                    selected_shop_die = shop_row
+                    replace_focus = 1
+                end
             elseif shop_col == 2 and shop_row >= 1 and shop_row <= #shop.items_inventory then
                 local ok, msg = shop:buyItem(player, shop_row)
                 if ok then Toast.success(msg) else Toast.error(msg) end
@@ -959,7 +970,7 @@ function ShopState:keypressed(key, player)
                     player:sortDice(sort_mode)
                     Toast.success("Added a new die to your pool!")
                 else
-                    Toast.error("Not enough currency! ($" .. cost .. " needed)")
+                    Toast.error("Not enough currency!")
                 end
             elseif player then
                 Toast.error("Dice pool is full! (max " .. player.max_dice .. ")")

@@ -65,7 +65,13 @@ function Die:updateRoll(dt)
         self:roll()
         return true
     end
-    self.value = math.random(1, 6)
+    if self.die_type == "light" then
+        self.value = math.random(1, 3)
+    elseif self.die_type == "heavy" then
+        self.value = math.random(3, 6)
+    else
+        self.value = math.random(1, 6)
+    end
     return false
 end
 

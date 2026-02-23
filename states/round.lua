@@ -49,6 +49,7 @@ local preview_mult_bonus = 0
 local selected_die_index = nil
 local tooltip_visible = true
 local last_input_keyboard = false
+local last_mouse_x, last_mouse_y = 0, 0
 
 local die_anims = {}
 local pre_roll_anim = { scale = 0, alpha = 0, target_count = 0 }
@@ -174,6 +175,10 @@ function Round:update(dt, player)
     end
 
     local mx, my = love.mouse.getPosition()
+    if mx ~= last_mouse_x or my ~= last_mouse_y then
+        last_input_keyboard = false
+        last_mouse_x, last_mouse_y = mx, my
+    end
     local W, H = love.graphics.getDimensions()
     local count = #player.dice_pool
     if count > 0 then

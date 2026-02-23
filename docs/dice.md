@@ -1,6 +1,6 @@
 # Dice Mechanics
 
-This document covers how dice work, the rolling algorithm, weighted randomness, abilities, upgrades, and all 8 dice types.
+This document covers how dice work, the rolling algorithm, weighted randomness, abilities, upgrades, and all 9 dice types.
 
 **Source files:** `objects/die.lua`, `content/dice_types.lua`
 
@@ -70,20 +70,35 @@ With equal weights `{1, 1, 1, 1, 1, 1}`:
 P(any face) = 1/6 ≈ 16.67%
 ```
 
-### Weighted Die Probabilities
+### Light Die Probabilities
 
-With weights `{0.5, 0.5, 0.8, 1.2, 1.5, 1.8}`, total = 6.3:
+With weights `{1, 1, 1, 0, 0, 0}`, total = 3:
 
 | Face | Weight | Probability |
 |------|--------|-------------|
-| 1 | 0.5 | 7.9% |
-| 2 | 0.5 | 7.9% |
-| 3 | 0.8 | 12.7% |
-| 4 | 1.2 | 19.0% |
-| 5 | 1.5 | 23.8% |
-| 6 | 1.8 | 28.6% |
+| 1 | 1 | 33.3% |
+| 2 | 1 | 33.3% |
+| 3 | 1 | 33.3% |
+| 4 | 0 | 0% |
+| 5 | 0 | 0% |
+| 6 | 0 | 0% |
 
-The Weighted Die rolls a 5 or 6 over **52%** of the time.
+The Light Die can only roll 1, 2, or 3 with equal probability.
+
+### Heavy Die Probabilities
+
+With weights `{0, 0, 1, 1, 1, 1}`, total = 4:
+
+| Face | Weight | Probability |
+|------|--------|-------------|
+| 1 | 0 | 0% |
+| 2 | 0 | 0% |
+| 3 | 1 | 25% |
+| 4 | 1 | 25% |
+| 5 | 1 | 25% |
+| 6 | 1 | 25% |
+
+The Heavy Die can only roll 3, 4, 5, or 6 with equal probability.
 
 ### Loaded Dice Item Effect
 
@@ -98,7 +113,7 @@ When the Loaded Dice item is active, all Normal dice get weights `{0.8, 0.8, 1.0
 | 5 | 1.2 | 19.4% |
 | 6 | 1.3 | 21.0% |
 
-Subtler than the Weighted Die, but shifts probability toward higher values across multiple dice.
+Subtler than the Heavy Die, but shifts probability toward higher values across multiple dice.
 
 ---
 
@@ -173,7 +188,7 @@ Abilities fire during the scoring phase. Each ability receives the die, the scor
 
 ---
 
-## All 8 Dice Types
+## All 9 Dice Types
 
 ### Normal Die
 
@@ -188,16 +203,29 @@ The baseline. Equal probability on all faces, no special effects.
 
 ---
 
-### Weighted Die
+### Light Die
 
 | Property | Value |
 |----------|-------|
 | Color | Blue |
-| Weights | {0.5, 0.5, 0.8, 1.2, 1.5, 1.8} |
-| Ability | Heavy Hitter |
-| Glow | Blue (0.3, 0.5, 1.0, 0.25) |
+| Weights | {1, 1, 1, 0, 0, 0} |
+| Ability | Featherweight |
+| Glow | Light Blue (0.6, 0.85, 1.0, 0.6) |
 
-Biased toward high values. No scoring bonus — the advantage is purely statistical. Excellent for N-of-a-Kind strategies since higher face values contribute more to the matched dice sum.
+Can only roll 1, 2, or 3. Useful for targeting low-value hands, synergy with Odd Die (2 of 3 faces are odd), and predictable outcomes. Pairs well with Mirror Die (which would flip 1→6, 2→5, 3→4).
+
+---
+
+### Heavy Die
+
+| Property | Value |
+|----------|-------|
+| Color | Blue |
+| Weights | {0, 0, 1, 1, 1, 1} |
+| Ability | Heavyweight |
+| Glow | Dark Blue (0.2, 0.25, 0.7, 0.6) |
+
+Can only roll 3, 4, 5, or 6. The higher floor makes it excellent for N-of-a-Kind strategies since face values contribute to score. Overlaps with Light Die on the value 3, enabling interesting pair/set combos.
 
 ---
 
@@ -323,6 +351,6 @@ Dice can be upgraded in the shop up to their `max_upgrade` (default 3). Upgrades
 | Glass | +5 bonus per level |
 | Odd | +3 bonus per level (when triggering) |
 | Even | +3 bonus per level (when triggering) |
-| Normal, Weighted, Wild, Mirror, Echo | No upgrade bonus (abilities are stat-independent) |
+| Normal, Light, Heavy, Wild, Mirror, Echo | No upgrade bonus (abilities are stat-independent) |
 
 Upgrade cost is included in the die's shop price: `8 + upgrade_level × 4`.
