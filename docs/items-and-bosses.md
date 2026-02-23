@@ -136,6 +136,7 @@ The effect is subtle per die but compounds across multiple Normal dice. Does not
 | Loaded Dice + many Normals | Maximizes the statistical advantage across your pool |
 | Extra Reroll + The Miser | Partially counters the boss's reroll reduction |
 | Lucky Penny + interest hoarding | Accelerates currency accumulation for compound interest |
+| X of a Kind upgrade + large pool | With 10+ dice, multi-hand scoring can form multiple X-of-a-Kind combos |
 
 ---
 

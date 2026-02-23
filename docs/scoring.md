@@ -1,166 +1,116 @@
 # Scoring System
 
-This document covers the hand detection algorithm, score calculation formula, and hand upgrade mechanics.
+This document covers the multi-hand optimal scoring algorithm, score calculation formula, and hand upgrade mechanics.
 
 **Source files:** `functions/scoring.lua`, `objects/hand.lua`
 
 ---
 
+## Multi-Hand Scoring
+
+The scoring system finds the **optimal combination of non-overlapping hands** from the dice pool. Instead of picking a single best hand and ignoring remaining dice, the algorithm partitions your dice into multiple hands that maximize total score.
+
+### Example
+
+With dice `{1,1,1,1,1,2,2,3,3,3}`, the algorithm might find:
+
+```
+5 of a Kind (1s): (100 + 5) x 4.0 = 420
+Full House (3s, 2s): (40 + 13) x 2.5 = 132
+Total hand score: 552
+```
+
+This beats any single-hand reading of the same pool.
+
+---
+
 ## Core Formula
 
-```
-score = floor( (hand.base_score + sum_of_matched_dice) × hand.multiplier )
-```
-
-After the base calculation, dice abilities and item effects are layered on:
+For each hand in the combination:
 
 ```
-score = score + ability_bonuses
-score = floor( score × (1 + item_mult_bonus) )
+hand_score = floor( (hand.base_score + sum_of_matched_dice) x hand.multiplier )
+```
+
+The total is the sum of all hand scores, then dice abilities and item effects are layered on:
+
+```
+total = sum of all hand_scores
+total = total + ability_bonuses
+total = floor( total x (1 + item_mult_bonus) )
 ```
 
 ### Example
 
-A **Three of a Kind** with three 5s:
+A **Full House** (three 3s + two 2s) alongside a **Pair** (two 5s):
 
 ```
-base_score  = 30          (Three of a Kind base)
-matched sum = 5 + 5 + 5   = 15
-multiplier  = 2.0
+Full House: floor((40 + 3+3+3+2+2) x 2.5) = floor(53 x 2.5) = 132
+Pair:       floor((10 + 5+5) x 1.5) = floor(20 x 1.5) = 30
+Subtotal:   162
 
-score = floor((30 + 15) × 2.0) = 90
-```
-
-If the player has Even Steven (+0.5 mult per even die) and 2 even dice elsewhere:
-
-```
-item_mult_bonus = 2 × 0.5 = 1.0
-final_score = floor(90 × (1 + 1.0)) = 180
+With Even Steven (2 even dice) adding +1.0 mult_bonus:
+final_score = floor(162 x (1 + 1.0)) = 324
 ```
 
 ---
 
-## Hand Detection Algorithm
+## Optimal Combination Algorithm
 
-The hand detection runs in `Scoring.detectHand(values)` and follows a priority-ordered evaluation. The first match wins — the algorithm checks the strongest hands first.
+`Scoring.findOptimalCombination(values, hands_list)` uses **memoized backtracking** to find the best partition:
 
-### Step 1: Build Frequency Table
+1. Represent the dice pool as a frequency table: `{[1]=count1, [2]=count2, ..., [6]=count6}`
+2. Generate all possible hand extractions from the current pool
+3. For each extraction, remove the matched dice and recursively solve the remainder
+4. Return the partition with the highest total score
+5. Memoize results keyed on the counts tuple for efficiency
 
-```lua
-function getCounts(values)
-    local counts = {}
-    for _, v in ipairs(values) do
-        counts[v] = (counts[v] or 0) + 1
-    end
-    return counts
-end
-```
+With max ~14 dice and values 1-6, the memoized state space is small and runs in well under 1ms.
 
-This produces a table like `{[3]=2, [5]=3}` for values `{3, 5, 3, 5, 5}`.
+### Hand Extraction Rules
 
-### Step 2: Sort Values
-
-```lua
-function getSorted(values)
-    local s = {}
-    for _, v in ipairs(values) do table.insert(s, v) end
-    table.sort(s)
-    return s
-end
-```
-
-### Step 3: Consecutive Check
-
-```lua
-function hasConsecutive(sorted, n)
-    local unique = {}
-    local seen = {}
-    for _, v in ipairs(sorted) do
-        if not seen[v] then
-            table.insert(unique, v)
-            seen[v] = true
-        end
-    end
-    table.sort(unique)
-    if #unique < n then return false end
-    for i = 1, #unique - n + 1 do
-        local ok = true
-        for j = 1, n - 1 do
-            if unique[i + j] ~= unique[i] + j then
-                ok = false
-                break
-            end
-        end
-        if ok then return true end
-    end
-    return false
-end
-```
-
-Extracts unique values, sorts them, then checks for any window of `n` consecutive integers.
-
-### Step 4: Detection Order
-
-The algorithm checks hands from strongest to weakest. The first match returns immediately.
-
-```
-Pyramid → Seven of a Kind → Six of a Kind → Five of a Kind →
-Full Run → Two Triplets → Four of a Kind → Three Pairs →
-Large Straight → Full House → All Even → All Odd →
-Small Straight → Three of a Kind → Two Pair → Pair → High Roll
-```
-
-### Detection Logic per Hand
-
-| Hand | Condition |
+| Hand | Extraction |
 |------|-----------|
-| **Pyramid** | Exactly counts `{1→2, 3→4, 5→6}` or pattern with 2 of each pair; requires 9+ dice |
-| **Seven of a Kind** | Any count ≥ 7 |
-| **Six of a Kind** | Any count ≥ 6 |
-| **Five of a Kind** | Any count ≥ 5 |
-| **Full Run** | All values 1-6 present (6+ dice, 6 unique values) |
-| **Two Triplets** | 2+ values with count ≥ 3 (requires 6+ dice) |
-| **Four of a Kind** | Any count ≥ 4 |
-| **Three Pairs** | 3+ values with count ≥ 2 (requires 6+ dice) |
-| **Large Straight** | `hasConsecutive(sorted, 5)` |
-| **Full House** | One count ≥ 3 AND a different count ≥ 2 |
-| **All Even** | All values are even (requires 5+ dice) |
-| **All Odd** | All values are odd (requires 5+ dice) |
-| **Small Straight** | `hasConsecutive(sorted, 4)` |
-| **Three of a Kind** | Any count ≥ 3 |
-| **Two Pair** | 2+ values with count ≥ 2 |
-| **Pair** | Any count ≥ 2 |
-| **High Roll** | Always matches (fallback) |
+| **X of a Kind** | For each value with count >= x (x=3..count), extract x dice of that value |
+| **Pair** | Extract 2 dice of any value with count >= 2 |
+| **Two Pair** | Extract 2+2 from two different values |
+| **Full House** | Extract 3 of one value + 2 of another |
+| **Small Straight** | Extract one each of 4 consecutive values |
+| **Large Straight** | Extract one each of 5 consecutive values |
+| **Full Run** | Extract one each of all values 1-6 |
+| **Three Pairs** | Extract 2 each from 3 different values |
+| **Two Triplets** | Extract 3 each from 2 different values |
+| **Pyramid** | Extract exactly 1x2, 3x4, 5x6 |
+| **All Even** | Only if ALL remaining dice are even (5+ dice); extracts all |
+| **All Odd** | Only if ALL remaining dice are odd (5+ dice); extracts all |
 
-### Matched Dice Selection
-
-When a hand is detected, only the **matched dice** contribute to the sum:
-
-- **N of a Kind**: Only `n` dice of the matching value (e.g., Three of a Kind uses 3 dice)
-- **Straight**: The dice forming the consecutive sequence
-- **Full House**: The 3+2 dice used
-- **Pairs**: Only the paired dice
-- **High Roll**: Only the single highest die
-
-The `getMatchedDice(hand_name, values, counts)` function returns which dice values are included in the sum.
+Unmatched dice (not part of any hand) don't score. If no hand can be formed at all, falls back to **High Roll** (highest single die).
 
 ---
 
-## Best Hand Selection
+## X of a Kind (Dynamic Scaling)
 
-`Scoring.findBestHand(values, player_hands)` doesn't just detect the hand type — it also looks up the player's upgraded version of that hand to get the current base score and multiplier.
+Instead of separate Three/Four/Five/Six/Seven of a Kind hands, there is a single **X of a Kind** hand that scales dynamically with the number of matching dice.
 
-```lua
-function Scoring.findBestHand(values, player_hands)
-    local detected = Scoring.detectHand(values)
-    for _, hand in ipairs(player_hands) do
-        if hand.name == detected.name then
-            return hand, detected.matched
-        end
-    end
-    return detected, detected.matched
-end
+### Scaling Formula
+
 ```
+base_score(x) = floor(5 * x * (x - 1))
+multiplier(x) = x - 1
+```
+
+| X | Base Score | Multiplier |
+|---|-----------|-----------|
+| 3 | 30 | 2.0 |
+| 4 | 60 | 3.0 |
+| 5 | 100 | 4.0 |
+| 6 | 150 | 5.0 |
+| 7 | 210 | 6.0 |
+| 8 | 280 | 7.0 |
+| 9 | 360 | 8.0 |
+| 10 | 450 | 9.0 |
+
+The formula extends naturally to any number of matching dice. Upgrades apply a flat base bonus and flat mult bonus on top of the X-scaling formula.
 
 ---
 
@@ -172,64 +122,52 @@ Each hand can be upgraded up to **level 5** in the shop.
 
 | Stat | Per Level |
 |------|-----------|
-| Base score | +30% (compounding): `base = floor(base × 1.3)` |
+| Base score | +30% (compounding): `base = floor(base x 1.3)` |
 | Multiplier | +0.5 flat |
+
+For X of a Kind, upgrades add flat bonuses to the scaling formula (starting from the 3-of-a-kind base of 30).
 
 ### Upgrade Cost Formula
 
 ```
-cost = 5 + level² × 5
+cost = 5 + level^2 x 5       (levels 0-4)
+cost = 5 + level^2 x 8       (levels 5+)
 ```
-
-Where `level` is the current level (before upgrading).
 
 | Upgrade | Cost |
 |---------|------|
-| 0 → 1 | $5 |
-| 1 → 2 | $10 |
-| 2 → 3 | $25 |
-| 3 → 4 | $50 |
-| 4 → 5 | $85 |
-
-**Total cost to max a hand: $175**
-
-### Upgrade Example: Pair
-
-| Level | Base Score | Multiplier | Score (two 6s) |
-|-------|-----------|------------|----------------|
-| 0 | 10 | ×1.5 | (10+12)×1.5 = 33 |
-| 1 | 13 | ×2.0 | (13+12)×2.0 = 50 |
-| 2 | 16 | ×2.5 | (16+12)×2.5 = 70 |
-| 3 | 20 | ×3.0 | (20+12)×3.0 = 96 |
-| 4 | 26 | ×3.5 | (26+12)×3.5 = 133 |
-| 5 | 33 | ×4.0 | (33+12)×4.0 = 180 |
-
-A max-level Pair scores over **5× more** than a level-0 Pair.
+| 0 -> 1 | $5 |
+| 1 -> 2 | $10 |
+| 2 -> 3 | $25 |
+| 3 -> 4 | $50 |
+| 4 -> 5 | $85 |
 
 ---
 
 ## Complete Hand Table
 
-All 17 hands at level 0:
+All 13 hands at level 0:
 
-| # | Hand | Base | Mult | Min Dice | Effective Range |
-|---|------|------|------|----------|-----------------|
-| 17 | Pyramid | 200 | ×10 | 9 | 2000+ |
-| 16 | Seven of a Kind | 175 | ×8 | 7 | 1400+ |
-| 15 | Six of a Kind | 130 | ×6 | 6 | 780+ |
-| 14 | Five of a Kind | 100 | ×5 | 5 | 500+ |
-| 13 | Full Run | 80 | ×4.5 | 6 | 454+ |
-| 12 | Two Triplets | 65 | ×4 | 6 | 260+ |
-| 11 | Four of a Kind | 60 | ×3.5 | 4 | 210+ |
-| 10 | Three Pairs | 50 | ×3 | 6 | 150+ |
-| 9 | Large Straight | 45 | ×3 | 5 | 195+ |
-| 8 | Full House | 40 | ×2.5 | 5 | 100+ |
-| 7 | All Even | 40 | ×3 | 5 | 150+ |
-| 6 | All Odd | 40 | ×3 | 5 | 120+ |
-| 5 | Small Straight | 30 | ×2.5 | 4 | 105+ |
-| 4 | Three of a Kind | 30 | ×2 | 3 | 60+ |
-| 3 | Two Pair | 20 | ×1.5 | 4 | 30+ |
-| 2 | Pair | 10 | ×1.5 | 2 | 15+ |
-| 1 | High Roll | 5 | ×1 | 1 | 5-11 |
+| # | Hand | Base | Mult | Min Dice | Description |
+|---|------|------|------|----------|-------------|
+| 13 | Pyramid | 200 | x10 | 9 | 1x two, 3x fours, 5x sixes |
+| 12 | Full Run | 80 | x4.5 | 6 | All values 1-6 present |
+| 11 | Two Triplets | 65 | x4 | 6 | Two sets of three of a kind |
+| 10 | Three Pairs | 50 | x3 | 6 | Three different pairs |
+| 9 | Large Straight | 45 | x3 | 5 | Five consecutive values |
+| 8 | All Even | 40 | x3 | 5 | Every die shows 2/4/6 |
+| 7 | All Odd | 40 | x3 | 5 | Every die shows 1/3/5 |
+| 6 | Full House | 40 | x2.5 | 5 | Three of a kind + a pair |
+| 5 | Small Straight | 30 | x2.5 | 4 | Four consecutive values |
+| 4 | X of a Kind | 30-450+ | x2-9+ | 3 | 3+ matching dice, scales with count |
+| 3 | Two Pair | 20 | x1.5 | 4 | Two different pairs |
+| 2 | Pair | 10 | x1.5 | 2 | Two dice of the same value |
+| 1 | High Roll | 5 | x1 | 1 | Highest single die (fallback) |
 
-"Effective Range" shows the approximate score range at level 0 without any bonuses.
+---
+
+## Visual Feedback
+
+During the **choosing** and **scoring** phases, each die is color-coded by which hand it belongs to in the optimal combination. A palette of 5 distinct colors (gold, teal, blue, purple, coral) cycles across the hands.
+
+The **score preview panel** (left side during choosing) shows all hands in the combination with individual scores. The **scoring popup** displays each hand with its score contribution, followed by the combined total.

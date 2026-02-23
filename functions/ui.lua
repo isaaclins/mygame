@@ -225,35 +225,38 @@ function UI.drawDie(x, y, size, value, dot_color, body_color, locked, hovered, s
 
         love.graphics.setFont(prev_font)
     elseif locked then
-        love.graphics.setColor(0, 0, 0, 0.18)
+        love.graphics.setColor(0.9, 0.10, 0.10, 0.13)
         UI.roundRect("fill", x, y, size, size, r)
 
-        love.graphics.setLineWidth(2.5)
-        love.graphics.setColor(0.9, 0.2, 0.2, 0.7)
+        love.graphics.setLineWidth(3)
+        love.graphics.setColor(0.9, 0.20, 0.20, 0.80)
         UI.roundRect("line", x, y, size, size, r)
         love.graphics.setLineWidth(1)
 
-        local badge_r = math.max(8, size * 0.14)
-        local badge_x = x + size - badge_r * 0.6
-        local badge_y = y - badge_r * 0.4
+        local cx = x + size / 2
+        local cy = y + size / 2
+        local body_w = size * 0.32
+        local body_h = size * 0.24
+        local body_x = cx - body_w / 2
+        local body_y = cy - body_h / 2 + size * 0.06
+        local body_r = math.max(2, size * 0.03)
 
-        love.graphics.setColor(0.85, 0.15, 0.15, 0.95)
-        love.graphics.circle("fill", badge_x, badge_y, badge_r)
-        love.graphics.setColor(1, 1, 1, 0.95)
-        love.graphics.circle("fill", badge_x, badge_y, badge_r - 1.5)
-        love.graphics.setColor(0.85, 0.15, 0.15, 0.95)
-        love.graphics.circle("fill", badge_x, badge_y, badge_r - 3)
-
-        local lw = badge_r * 0.55
-        local lh = badge_r * 0.45
-        local lbx = badge_x - lw / 2
-        local lby = badge_y - lh * 0.15
-        love.graphics.setColor(1, 1, 1, 0.95)
-        love.graphics.rectangle("fill", lbx, lby, lw, lh, 1.5, 1.5)
-        local shackle_r = lw * 0.32
-        love.graphics.setLineWidth(math.max(1.5, badge_r * 0.12))
-        love.graphics.arc("line", "open", badge_x, lby, shackle_r, math.pi, 0)
+        local shackle_r = body_w * 0.34
+        local shackle_lw = math.max(2.5, size * 0.045)
+        love.graphics.setLineWidth(shackle_lw)
+        love.graphics.setColor(1, 1, 1, 0.80)
+        love.graphics.arc("line", "open", cx, body_y, shackle_r, math.pi, 0)
         love.graphics.setLineWidth(1)
+
+        love.graphics.setColor(1, 1, 1, 0.80)
+        love.graphics.rectangle("fill", body_x, body_y, body_w, body_h, body_r, body_r)
+
+        local kh_r = body_h * 0.16
+        local kh_cx = cx
+        local kh_cy = body_y + body_h * 0.38
+        love.graphics.setColor(0.75, 0.15, 0.15, 0.95)
+        love.graphics.circle("fill", kh_cx, kh_cy, kh_r)
+        love.graphics.rectangle("fill", kh_cx - kh_r * 0.45, kh_cy, kh_r * 0.9, body_h * 0.30)
     end
 end
 

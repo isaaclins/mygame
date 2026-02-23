@@ -19,15 +19,20 @@ local sort_modes = {
     { key = "odd_first",  label = "Odd 1st" },
 }
 
+local hand_colors = {
+    { 1.00, 0.40, 0.70, 1 },   -- hot pink (avoids all die glows)
+    { 1.00, 0.65, 0.40, 1 },   -- warm peach
+    { 0.30, 0.95, 0.75, 1 },   -- aquamarine
+    { 0.75, 0.55, 1.00, 1 },   -- lavender
+    { 0.85, 1.00, 0.35, 1 },   -- lime
+}
+
 local sub_state = "pre_roll"
 local pre_roll_timer = 0
 local score_display_timer = 0
 local round_score = 0
-local round_hand = nil
-local round_matched = {}
-local round_base_score = 0
-local round_dice_sum = 0
-local round_multiplier = 0
+local round_combo = {}
+local round_hand_total = 0
 local round_bonus = 0
 local round_mult_bonus = 0
 local currency_earned = 0
@@ -37,12 +42,13 @@ local wild_die_index = nil
 local bulk_wild_selecting = false
 local boss_context = nil
 local dice_ability_results = {}
-local preview_hand = nil
+local preview_combo = {}
 local preview_score = 0
 local preview_bonus = 0
 local preview_mult_bonus = 0
 local selected_die_index = nil
 local tooltip_visible = true
+local last_input_keyboard = false
 
 local die_anims = {}
 local pre_roll_anim = { scale = 0, alpha = 0, target_count = 0 }
@@ -83,23 +89,58 @@ local function isKey(key, action)
     return key == getKeybind(action)
 end
 
+local function getHandColor(index)
+    return hand_colors[((index - 1) % #hand_colors) + 1]
+end
+
+local function buildDieHandMap(combo, dice_pool)
+    local die_hand_index = {}
+    local used = {}
+    for ci, entry in ipairs(combo) do
+        local match_counts = {}
+        for _, v in ipairs(entry.matched) do
+            match_counts[v] = (match_counts[v] or 0) + 1
+        end
+        for i, die in ipairs(dice_pool) do
+            if not used[i] then
+                local v = die.value
+                if match_counts[v] and match_counts[v] > 0 then
+                    die_hand_index[i] = ci
+                    used[i] = true
+                    match_counts[v] = match_counts[v] - 1
+                end
+            end
+        end
+    end
+    return die_hand_index
+end
+
+local function getActiveHandNames(combo)
+    local names = {}
+    for _, entry in ipairs(combo) do
+        names[entry.hand.name] = true
+    end
+    return names
+end
+
 function Round:init(player, boss)
     sub_state = "pre_roll"
     pre_roll_timer = 1.2
     score_display_timer = 0
     round_score = 0
-    round_hand = nil
-    round_matched = {}
+    round_combo = {}
+    round_hand_total = 0
     currency_earned = 0
     currency_breakdown = {}
     wild_selecting = false
     wild_die_index = nil
     bulk_wild_selecting = false
     dice_ability_results = {}
-    preview_hand = nil
+    preview_combo = {}
     shown_preview = false
     shown_hand_ref = false
     selected_die_index = nil
+    last_input_keyboard = false
 
     player:startNewRound()
 
@@ -244,7 +285,23 @@ end
 
 function Round:applySortMode(player)
     local mode = Settings.get("dice_sort_mode") or "default"
-    player:sortDice(mode)
+    if mode == "default" and #player.dice_pool > 0 then
+        local values = player:getDiceValues()
+        local combo = Scoring.findOptimalCombination(values, player.hands)
+        if combo and #combo > 0 then
+            local hand_map = buildDieHandMap(combo, player.dice_pool)
+            for i, die in ipairs(player.dice_pool) do
+                die._combo_index = hand_map[i]
+            end
+        else
+            for _, die in ipairs(player.dice_pool) do
+                die._combo_index = nil
+            end
+        end
+        player:sortDice("combo")
+    else
+        player:sortDice(mode)
+    end
     resetDieAnims(player)
 end
 
@@ -311,12 +368,12 @@ function Round:updatePreview(player)
         item.triggered_this_round = saved_triggers[i]
     end
 
-    local hand, score, matched = Scoring.findBestHand(values, player.hands)
-    preview_hand = hand
+    local combo, hand_total = Scoring.findOptimalCombination(values, player.hands)
+    preview_combo = combo
     preview_bonus = context.bonus or 0
     preview_mult_bonus = context.mult_bonus or 0
 
-    score = score + preview_bonus
+    local score = hand_total + preview_bonus
     if preview_mult_bonus > 0 then
         score = math.floor(score * (1 + preview_mult_bonus))
     end
@@ -324,23 +381,18 @@ function Round:updatePreview(player)
 end
 
 function Round:drawScorePreview(player, W, H)
-    if sub_state ~= "choosing" or not preview_hand then return end
+    if sub_state ~= "choosing" or #preview_combo == 0 then return end
     if preview_panel_anim.alpha < 0.01 then return end
-
-    local values = player:getDiceValues()
-    local _, matched = Scoring.detectHand(values)
-    matched = matched or {}
-    local dice_sum = 0
-    for _, v in ipairs(matched) do dice_sum = dice_sum + v end
 
     local has_bonus = preview_bonus > 0
     local has_mult = preview_mult_bonus > 0
     local extra_lines = (has_bonus and 1 or 0) + (has_mult and 1 or 0)
+    local hand_count = #preview_combo
 
     local panel_x = 10 + preview_panel_anim.x_off
     local panel_y = 70
     local panel_w = 220
-    local panel_h = 152 + extra_lines * 18
+    local panel_h = 56 + hand_count * 20 + 10 + extra_lines * 18 + 36
 
     love.graphics.setColor(1, 1, 1, preview_panel_anim.alpha)
     UI.drawPanel(panel_x, panel_y, panel_w, panel_h)
@@ -349,40 +401,41 @@ function Round:drawScorePreview(player, W, H)
     love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], preview_panel_anim.alpha)
     love.graphics.printf("SCORE PREVIEW", panel_x, panel_y + 8, panel_w, "center")
 
-    love.graphics.setFont(Fonts.get(18))
-    local shimmer = 0.8 + 0.2 * math.sin(love.timer.getTime() * 3)
-    love.graphics.setColor(UI.colors.accent[1] * shimmer, UI.colors.accent[2] * shimmer, UI.colors.accent[3], preview_panel_anim.alpha)
-    love.graphics.printf(preview_hand.name, panel_x, panel_y + 26, panel_w, "center")
-
+    local ly = panel_y + 28
     love.graphics.setFont(Fonts.get(13))
-    local ly = panel_y + 52
-    love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], preview_panel_anim.alpha * 0.9)
-    love.graphics.printf("Base: " .. preview_hand.base_score, panel_x + 12, ly, panel_w - 24, "left")
-    ly = ly + 17
-    love.graphics.printf("Dice: +" .. dice_sum, panel_x + 12, ly, panel_w - 24, "left")
-    ly = ly + 17
-    love.graphics.printf("Mult: x" .. string.format("%.1f", preview_hand.multiplier), panel_x + 12, ly, panel_w - 24, "left")
-    ly = ly + 17
 
-    if has_bonus then
-        love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], preview_panel_anim.alpha)
-        love.graphics.printf("Bonus: +" .. preview_bonus, panel_x + 12, ly, panel_w - 24, "left")
-        ly = ly + 17
-    end
-    if has_mult then
-        love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], preview_panel_anim.alpha)
-        love.graphics.printf("Item mult: x" .. string.format("%.1f", 1 + preview_mult_bonus), panel_x + 12, ly, panel_w - 24, "left")
-        ly = ly + 17
+    for ci, entry in ipairs(preview_combo) do
+        local hc = getHandColor(ci)
+        local name = Scoring.comboEntryName(entry)
+        love.graphics.setColor(hc[1], hc[2], hc[3], preview_panel_anim.alpha)
+        love.graphics.printf(name, panel_x + 10, ly, panel_w - 60, "left")
+        love.graphics.setColor(UI.colors.text[1], UI.colors.text[2], UI.colors.text[3], preview_panel_anim.alpha * 0.8)
+        love.graphics.printf(UI.abbreviate(entry.score), panel_x, ly, panel_w - 10, "right")
+        ly = ly + 20
     end
 
-    ly = ly + 2
+    ly = ly + 4
     love.graphics.setLineWidth(1)
     love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], preview_panel_anim.alpha * 0.6)
     love.graphics.line(panel_x + 12, ly, panel_x + panel_w - 12, ly)
+    ly = ly + 6
+
+    if has_bonus then
+        love.graphics.setFont(Fonts.get(12))
+        love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], preview_panel_anim.alpha)
+        love.graphics.printf("Bonus: +" .. preview_bonus, panel_x + 12, ly, panel_w - 24, "left")
+        ly = ly + 18
+    end
+    if has_mult then
+        love.graphics.setFont(Fonts.get(12))
+        love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], preview_panel_anim.alpha)
+        love.graphics.printf("Item mult: x" .. string.format("%.1f", 1 + preview_mult_bonus), panel_x + 12, ly, panel_w - 24, "left")
+        ly = ly + 18
+    end
 
     love.graphics.setFont(Fonts.get(24))
     love.graphics.setColor(1, 1, 1, preview_panel_anim.alpha)
-    love.graphics.printf(UI.abbreviate(preview_score), panel_x, ly + 6, panel_w, "center")
+    love.graphics.printf(UI.abbreviate(preview_score), panel_x, ly + 2, panel_w, "center")
 end
 
 local function countWildDice(player)
@@ -405,7 +458,8 @@ function Round:drawBulkWildButton(player, W, H)
     local has_bonus = preview_bonus > 0
     local has_mult = preview_mult_bonus > 0
     local extra_lines = (has_bonus and 1 or 0) + (has_mult and 1 or 0)
-    local preview_bottom = 70 + 152 + extra_lines * 18
+    local hand_count = #preview_combo
+    local preview_bottom = 70 + 56 + hand_count * 20 + 10 + extra_lines * 18 + 36
 
     local btn_x = 10 + preview_panel_anim.x_off
     local btn_y = preview_bottom + 12
@@ -535,22 +589,15 @@ function Round:drawDice(player, W, H)
     local tooltip_die = nil
     local tooltip_dx, tooltip_dy, tooltip_s = 0, 0, 0
 
-    local die_matched = {}
-    if sub_state == "choosing" and preview_hand then
-        local values = player:getDiceValues()
-        local _, matched = Scoring.detectHand(values)
-        matched = matched or {}
-        local match_counts = {}
-        for _, v in ipairs(matched) do
-            match_counts[v] = (match_counts[v] or 0) + 1
-        end
-        for i, die in ipairs(player.dice_pool) do
-            local v = die.value
-            if match_counts[v] and match_counts[v] > 0 then
-                die_matched[i] = true
-                match_counts[v] = match_counts[v] - 1
-            end
-        end
+    local die_hand_index = {}
+    local active_combo = nil
+    if sub_state == "choosing" and #preview_combo > 0 then
+        active_combo = preview_combo
+    elseif sub_state == "scoring" and #round_combo > 0 then
+        active_combo = round_combo
+    end
+    if active_combo then
+        die_hand_index = buildDieHandMap(active_combo, player.dice_pool)
     end
 
     for i, die in ipairs(player.dice_pool) do
@@ -559,9 +606,10 @@ function Round:drawDice(player, W, H)
         local hovered = UI.pointInRect(mx, my, dx - 4, dy - 4, layout.die_size + 8, layout.die_size + 8)
         local dot_color = die_colors_map[die.color] or UI.colors.die_black
         local is_selected = (i == selected_die_index and sub_state == "choosing")
+        local show_selection = is_selected and (last_input_keyboard or hovered)
 
         local sel_float = 0
-        if is_selected then
+        if show_selection then
             sel_float = -4 - 3 * math.sin(t * 3)
         end
 
@@ -572,10 +620,10 @@ function Round:drawDice(player, W, H)
         local draw_x = cx - s / 2
         local draw_y = cy - s / 2 + da.y_off + math.sin(t * 12 + i) * da.bounce + sel_float
 
-        if is_selected then
+        if show_selection then
             local pulse = 0.5 + 0.5 * math.sin(t * 4)
             love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], 0.15 + 0.1 * pulse)
-            UI.roundRect("fill", draw_x - 6, draw_y - 6, s + 12, s + 12, s * 0.15 + 4)
+            UI.roundRect("fill", draw_x - 9, draw_y - 9, s + 18, s + 18, s * 0.15 + 6)
         end
 
         local is_boss_locked = false
@@ -586,11 +634,23 @@ function Round:drawDice(player, W, H)
         end
         UI.drawDie(draw_x, draw_y, s, die.value, dot_color, nil, die.locked, hovered, die.glow_color, is_boss_locked)
 
-        if is_selected then
+        local hi = die_hand_index[i]
+        if hi then
+            local hc = getHandColor(hi)
+            local ho = 5
+            love.graphics.setColor(hc[1], hc[2], hc[3], 0.10)
+            UI.roundRect("fill", draw_x - ho, draw_y - ho, s + ho * 2, s + ho * 2, s * 0.15 + ho * 0.5)
+            love.graphics.setLineWidth(3)
+            love.graphics.setColor(hc[1], hc[2], hc[3], 0.85)
+            UI.roundRect("line", draw_x - ho, draw_y - ho, s + ho * 2, s + ho * 2, s * 0.15 + ho * 0.5)
+            love.graphics.setLineWidth(1)
+        end
+
+        if show_selection then
             local pulse = 0.5 + 0.5 * math.sin(t * 4)
             love.graphics.setLineWidth(2.5)
             love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], 0.6 + 0.3 * pulse)
-            UI.roundRect("line", draw_x - 3, draw_y - 3, s + 6, s + 6, s * 0.15 + 2)
+            UI.roundRect("line", draw_x - 8, draw_y - 8, s + 16, s + 16, s * 0.15 + 5)
             love.graphics.setLineWidth(1)
         end
 
@@ -623,9 +683,9 @@ function Round:drawDice(player, W, H)
 
         if sub_state == "choosing" then
             local show_for_hover = hovered
-            local show_for_select = is_selected and tooltip_visible
+            local show_for_select = show_selection and tooltip_visible
             if show_for_hover or show_for_select then
-                tooltip_die = { die = die, index = i, matched = die_matched[i], boss_locked = is_boss_locked }
+                tooltip_die = { die = die, index = i, hand_index = die_hand_index[i], boss_locked = is_boss_locked }
                 tooltip_dx = draw_x
                 tooltip_dy = draw_y
                 tooltip_s = s
@@ -633,14 +693,14 @@ function Round:drawDice(player, W, H)
         end
     end
 
-    if tooltip_die and preview_hand then
+    if tooltip_die and #preview_combo > 0 then
         self:drawDieTooltip(tooltip_die, tooltip_dx, tooltip_dy, tooltip_s, W, H)
     end
 end
 
 function Round:drawDieTooltip(info, dx, dy, s, W, H)
     local die = info.die
-    local is_matched = info.matched
+    local hi = info.hand_index
 
     local tip_w = 210
     local pad = 10
@@ -656,7 +716,7 @@ function Round:drawDieTooltip(info, dx, dy, s, W, H)
     local tip_h = pad + 20
         + (has_ability and (16 + desc_lines * 13 + 6) or 0)
         + 2 + 18
-        + (preview_hand and 18 or 0)
+        + (#preview_combo > 0 and 18 or 0)
         + pad
 
     local tip_x = dx + s / 2 - tip_w / 2
@@ -716,10 +776,13 @@ function Round:drawDieTooltip(info, dx, dy, s, W, H)
     end
     ly = ly + 18
 
-    if preview_hand then
-        if is_matched then
-            UI.setColor(UI.colors.green)
-            love.graphics.printf("Matched (+" .. die.value .. " to hand)", tip_x + pad, ly, tip_w - pad * 2, "left")
+    if #preview_combo > 0 then
+        if hi then
+            local hc = getHandColor(hi)
+            local entry = preview_combo[hi]
+            local name = Scoring.comboEntryName(entry)
+            love.graphics.setColor(hc[1], hc[2], hc[3], 1)
+            love.graphics.printf(name .. " (+" .. die.value .. ")", tip_x + pad, ly, tip_w - pad * 2, "left")
         else
             UI.setColor(UI.colors.text_dark)
             love.graphics.printf("Not matched", tip_x + pad, ly, tip_w - pad * 2, "left")
@@ -731,19 +794,15 @@ local hand_examples = {
     ["High Roll"]       = { 6 },
     ["Pair"]            = { 3, 3 },
     ["Two Pair"]        = { 2, 2, 5, 5 },
-    ["Three of a Kind"] = { 4, 4, 4 },
+    ["X of a Kind"]     = { 4, 4, 4 },
     ["Small Straight"]  = { 2, 3, 4, 5 },
     ["Full House"]      = { 3, 3, 3, 6, 6 },
     ["Large Straight"]  = { 1, 2, 3, 4, 5 },
-    ["Four of a Kind"]  = { 1, 1, 1, 1 },
-    ["Five of a Kind"]  = { 5, 5, 5, 5, 5 },
     ["All Even"]        = { 2, 4, 6, 2, 4 },
     ["All Odd"]         = { 1, 3, 5, 1, 3 },
     ["Three Pairs"]     = { 1, 1, 3, 3, 5, 5 },
     ["Two Triplets"]    = { 2, 2, 2, 5, 5, 5 },
     ["Full Run"]        = { 1, 2, 3, 4, 5, 6 },
-    ["Six of a Kind"]   = { 3, 3, 3, 3, 3, 3 },
-    ["Seven of a Kind"] = { 6, 6, 6, 6, 6, 6, 6 },
     ["Pyramid"]         = { 2, 4, 4, 4, 6, 6, 6, 6, 6 },
 }
 
@@ -756,6 +815,13 @@ function Round:drawHandReference(player, W, H)
         if (hand.min_dice or 1) <= dice_count then
             table.insert(visible_hands, hand)
         end
+    end
+
+    local active_names = {}
+    if sub_state == "choosing" and #preview_combo > 0 then
+        active_names = getActiveHandNames(preview_combo)
+    elseif sub_state == "scoring" and #round_combo > 0 then
+        active_names = getActiveHandNames(round_combo)
     end
 
     local panel_w = 240
@@ -792,7 +858,7 @@ function Round:drawHandReference(player, W, H)
             name_x = name_x + tag_w
         end
 
-        if round_hand and hand.name == round_hand.name then
+        if active_names[hand.name] then
             love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], hand_ref_anim.alpha)
         elseif is_hovered then
             love.graphics.setColor(1, 1, 1, hand_ref_anim.alpha)
@@ -840,8 +906,8 @@ function Round:drawHandTooltip(hand, ref_x, ref_y, ref_w, mx, my)
     local dice_x = tip_x + (tip_w - dice_row_w) / 2
     local dice_y = tip_y + 28
 
-    for i, val in ipairs(example) do
-        local ddx = dice_x + (i - 1) * (die_size + die_gap)
+    for j, val in ipairs(example) do
+        local ddx = dice_x + (j - 1) * (die_size + die_gap)
         UI.drawDie(ddx, dice_y, die_size, val, UI.colors.die_black)
     end
 end
@@ -1015,17 +1081,22 @@ function Round:drawScoring(player, W, H)
     local won = round_score >= target
     local bd_count = won and #currency_breakdown or 0
     local has_abilities = #dice_ability_results > 0
+    local combo_count = #round_combo
 
     local panel_w = 420
+    local hand_section_h = combo_count * 22 + 8
+    local bonus_section_h = (round_bonus > 0 and 16 or 0) + (round_mult_bonus > 0 and 16 or 0)
     local panel_h
     if won and bd_count > 0 then
-        panel_h = 164 + bd_count * 24 + 38 + (has_abilities and 30 or 0)
+        panel_h = 14 + hand_section_h + bonus_section_h + 60 + 28
+            + bd_count * 24 + 38 + (has_abilities and 30 or 0)
     else
-        panel_h = 260
+        panel_h = 14 + hand_section_h + bonus_section_h + 60 + 28
+            + (has_abilities and 30 or 0) + 40
     end
 
     local px = (W - panel_w) / 2
-    local py = H * 0.18
+    local py = H * 0.12
 
     local panel_progress = math.min(1, (score_display_timer - 0.3) / 0.3)
     local ps = 0.85 + 0.15 * Tween.easing.outBack(panel_progress)
@@ -1037,34 +1108,51 @@ function Round:drawScoring(player, W, H)
 
     UI.drawPanel(px, py, panel_w, panel_h, { border = UI.colors.accent, border_width = 2 })
 
-    love.graphics.setFont(Fonts.get(28))
-    UI.setColor(UI.colors.accent)
-    love.graphics.printf(round_hand and round_hand.name or "No Hand", px, py + 14, panel_w, "center")
+    local ly = py + 14
+    local pad_x = 24
 
     love.graphics.setFont(Fonts.get(14))
-    UI.setColor(UI.colors.text_dim)
-    local mult_str = round_multiplier >= 1e3 and UI.abbreviate(round_multiplier) or string.format("%.1f", round_multiplier)
-    local formula = "(" .. UI.abbreviate(round_base_score) .. " + " .. UI.abbreviate(round_dice_sum) .. ") x " .. mult_str
+    for ci, entry in ipairs(round_combo) do
+        local hc = getHandColor(ci)
+        local name = Scoring.comboEntryName(entry)
+        love.graphics.setColor(hc[1], hc[2], hc[3], 1)
+        love.graphics.printf(name, px + pad_x, ly, panel_w - pad_x * 2 - 80, "left")
+        love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], 1)
+        love.graphics.printf(UI.abbreviate(entry.score), px + pad_x, ly, panel_w - pad_x * 2, "right")
+        ly = ly + 22
+    end
+
+    ly = ly + 2
+    love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], 0.5)
+    love.graphics.setLineWidth(1)
+    love.graphics.line(px + pad_x, ly, px + panel_w - pad_x, ly)
+    ly = ly + 6
+
+    love.graphics.setFont(Fonts.get(12))
     if round_bonus > 0 then
-        formula = formula .. " + " .. UI.abbreviate(round_bonus) .. " bonus"
+        love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], 0.8)
+        love.graphics.printf("+ " .. UI.abbreviate(round_bonus) .. " bonus", px + pad_x, ly, panel_w - pad_x * 2, "left")
+        ly = ly + 16
     end
     if round_mult_bonus > 0 then
         local mb_str = (1 + round_mult_bonus) >= 1e3 and UI.abbreviate(1 + round_mult_bonus) or string.format("%.1f", 1 + round_mult_bonus)
-        formula = formula .. " x " .. mb_str .. " item mult"
+        love.graphics.setColor(UI.colors.green[1], UI.colors.green[2], UI.colors.green[3], 0.8)
+        love.graphics.printf("x " .. mb_str .. " item mult", px + pad_x, ly, panel_w - pad_x * 2, "left")
+        ly = ly + 16
     end
-    love.graphics.printf(formula, px, py + 48, panel_w, "center")
 
     love.graphics.setFont(Fonts.get(42))
     local t = UI.clamp((score_display_timer - 0.6) / 1.0, 0, 1)
     local eased_t = Tween.easing.outCubic(t)
     local display_score = math.floor(UI.lerp(0, round_score, eased_t))
     UI.setColor(UI.colors.text)
-    love.graphics.printf(UI.abbreviate(display_score), px, py + 72, panel_w, "center")
+    love.graphics.printf(UI.abbreviate(display_score), px, ly + 2, panel_w, "center")
+    ly = ly + 56
 
     if t >= 1 and scoring_shake.intensity == 0 and score_display_timer < 2.0 then
         scoring_shake.intensity = math.min(8, round_score / 50)
         if won then
-            Particles.burst(W / 2, py + 100, UI.colors.accent, 30)
+            Particles.burst(W / 2, py + ly - 30, UI.colors.accent, 30)
         end
     end
 
@@ -1072,12 +1160,12 @@ function Round:drawScoring(player, W, H)
 
     if won then
         UI.setColor(UI.colors.green)
-        love.graphics.printf("TARGET MET!", px, py + 132, panel_w, "center")
+        love.graphics.printf("TARGET MET!", px, ly, panel_w, "center")
+        ly = ly + 30
 
         local line_font = Fonts.get(14)
         love.graphics.setFont(line_font)
-        local pad_x = 24
-        local line_y_start = py + 162
+        local line_y_start = ly
         local line_height = 24
         local bd_start_time = 1.6
         local line_stagger = 0.2
@@ -1087,7 +1175,7 @@ function Round:drawScoring(player, W, H)
             if lt > 0 then
                 local alpha = math.min(1, lt / 0.15)
                 local y_off = (1 - alpha) * 6
-                local ly = line_y_start + (i - 1) * line_height + y_off
+                local bly = line_y_start + (i - 1) * line_height + y_off
 
                 local label = entry.label
                 local amount_str = "+" .. UI.abbreviate(entry.amount)
@@ -1097,7 +1185,7 @@ function Round:drawScoring(player, W, H)
                 local amount_total_w = coin_w + gap + line_font:getWidth(amount_str)
 
                 love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], alpha)
-                love.graphics.printf(label, px + pad_x, ly, panel_w - pad_x * 2, "left")
+                love.graphics.printf(label, px + pad_x, bly, panel_w - pad_x * 2, "left")
 
                 local label_w = line_font:getWidth(label)
                 local dot_w = line_font:getWidth(". ")
@@ -1106,12 +1194,12 @@ function Round:drawScoring(player, W, H)
                 love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], alpha * 0.6)
                 local dot_x = dots_start_x
                 while dot_x + dot_w < dots_end_x do
-                    love.graphics.print(".", dot_x, ly)
+                    love.graphics.print(".", dot_x, bly)
                     dot_x = dot_x + dot_w
                 end
 
                 love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], alpha)
-                CoinAnim.drawStaticWithAmount(amount_str, px + pad_x, ly, "right", panel_w - pad_x * 2, cs)
+                CoinAnim.drawStaticWithAmount(amount_str, px + pad_x, bly, "right", panel_w - pad_x * 2, cs)
             end
         end
 
@@ -1143,13 +1231,13 @@ function Round:drawScoring(player, W, H)
         end
     else
         UI.setColor(UI.colors.red)
-        love.graphics.printf("TARGET MISSED (" .. UI.abbreviate(target) .. " needed)", px, py + 132, panel_w, "center")
+        love.graphics.printf("TARGET MISSED (" .. UI.abbreviate(target) .. " needed)", px, ly, panel_w, "center")
 
         if has_abilities then
             love.graphics.setFont(Fonts.get(13))
             UI.setColor(UI.colors.text_dim)
             local ability_text = table.concat(dice_ability_results, " | ")
-            love.graphics.printf(ability_text, px + 10, py + 166, panel_w - 20, "center")
+            love.graphics.printf(ability_text, px + 10, ly + 34, panel_w - 20, "center")
         end
     end
 
@@ -1244,25 +1332,29 @@ function Round:calculateScore(player)
 
     player:applyItems(context)
 
-    local hand, score, matched = Scoring.findBestHand(values, player.hands)
-    round_hand = hand
-    round_matched = matched
+    local combo, hand_total = Scoring.findOptimalCombination(values, player.hands)
+    round_combo = combo
+    round_hand_total = hand_total
 
-    local dice_sum = 0
-    for _, v in ipairs(matched) do dice_sum = dice_sum + v end
-    round_base_score = hand.base_score
-    round_dice_sum = dice_sum
-    round_multiplier = hand.multiplier
     round_bonus = context.bonus or 0
     round_mult_bonus = context.mult_bonus or 0
 
-    score = score + round_bonus
+    local score = hand_total + round_bonus
     if round_mult_bonus > 0 then
         score = math.floor(score * (1 + round_mult_bonus))
     end
 
     round_score = score
     return score
+end
+
+local function isDieBossLocked(die)
+    if boss_context and boss_context.boss_locked_dice then
+        for _, ld in ipairs(boss_context.boss_locked_dice) do
+            if ld == die then return true end
+        end
+    end
+    return false
 end
 
 local function doLockDie(self, player, idx)
@@ -1332,15 +1424,6 @@ local function cycleSortMode(self, player)
     self:updatePreview(player)
 end
 
-local function isDieBossLocked(die)
-    if boss_context and boss_context.boss_locked_dice then
-        for _, ld in ipairs(boss_context.boss_locked_dice) do
-            if ld == die then return true end
-        end
-    end
-    return false
-end
-
 local function applyBulkWild(self, player, value)
     local skipped = 0
     for i, die in ipairs(player.dice_pool) do
@@ -1406,6 +1489,7 @@ function Round:mousepressed(x, y, button, player)
             local dx, dy = getDiePosition(layout, i, count)
             if UI.pointInRect(x, y, dx, dy, layout.die_size, layout.die_size) then
                 selected_die_index = i
+                last_input_keyboard = false
                 doLockDie(self, player, i)
                 return nil
             end
@@ -1490,6 +1574,7 @@ function Round:keypressed(key, player)
         local shift_held = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
 
         if isKey(key, "select_next") and shift_held then
+            last_input_keyboard = true
             if not selected_die_index then
                 selected_die_index = count
             elseif selected_die_index > 1 then
@@ -1498,6 +1583,7 @@ function Round:keypressed(key, player)
                 selected_die_index = count
             end
         elseif isKey(key, "select_next") then
+            last_input_keyboard = true
             if not selected_die_index then
                 selected_die_index = 1
             else
@@ -1506,6 +1592,7 @@ function Round:keypressed(key, player)
         elseif isKey(key, "show_tooltip") then
             tooltip_visible = not tooltip_visible
         elseif isKey(key, "move_left") then
+            last_input_keyboard = true
             if not selected_die_index then
                 selected_die_index = count
             elseif selected_die_index > 1 then
@@ -1514,6 +1601,7 @@ function Round:keypressed(key, player)
                 selected_die_index = count
             end
         elseif isKey(key, "move_right") then
+            last_input_keyboard = true
             if not selected_die_index then
                 selected_die_index = 1
             elseif selected_die_index < count then
@@ -1522,6 +1610,7 @@ function Round:keypressed(key, player)
                 selected_die_index = 1
             end
         elseif isKey(key, "toggle_lock") then
+            last_input_keyboard = true
             if selected_die_index and selected_die_index >= 1 and selected_die_index <= count then
                 doLockDie(self, player, selected_die_index)
             end
@@ -1532,6 +1621,7 @@ function Round:keypressed(key, player)
         elseif isKey(key, "sort_cycle") then
             cycleSortMode(self, player)
         elseif tonumber(key) then
+            last_input_keyboard = true
             local idx = tonumber(key)
             if idx == 0 then idx = 10 end
             if idx >= 1 and idx <= count then

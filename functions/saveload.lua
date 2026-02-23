@@ -192,12 +192,31 @@ function SaveLoad.restorePlayer(data, Player, Die, createDiceTypes, createItems,
     local base_hands = createHands()
     player.hands = {}
     local saved_hands = data.hands or {}
-    for i, hand in ipairs(base_hands) do
-        local hd = saved_hands[i]
+
+    local saved_by_name = {}
+    for _, hd in ipairs(saved_hands) do
+        if hd.name then saved_by_name[hd.name] = hd end
+    end
+
+    local old_xoak_names = {
+        "Three of a Kind", "Four of a Kind",
+        "Five of a Kind", "Six of a Kind", "Seven of a Kind",
+    }
+    local merged_xoak_level = 0
+    for _, old_name in ipairs(old_xoak_names) do
+        local hd = saved_by_name[old_name]
+        if hd and (hd.upgrade_level or 0) > merged_xoak_level then
+            merged_xoak_level = hd.upgrade_level
+        end
+    end
+
+    for _, hand in ipairs(base_hands) do
+        local hd = saved_by_name[hand.name]
         if hd then
-            hand.base_score = hd.base_score or hand.base_score
-            hand.multiplier = hd.multiplier or hand.multiplier
-            hand.upgrade_level = hd.upgrade_level or 0
+            local lvl = hd.upgrade_level or 0
+            if lvl > 0 then hand:setUpgradeLevel(lvl) end
+        elseif hand.is_x_of_a_kind and merged_xoak_level > 0 then
+            hand:setUpgradeLevel(merged_xoak_level)
         end
         table.insert(player.hands, hand)
     end

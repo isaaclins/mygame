@@ -127,6 +127,14 @@ function Player:sortDice(mode)
             if a.value ~= b.value then return a.value < b.value end
             return (a._sort_order or 0) < (b._sort_order or 0)
         end)
+    elseif mode == "combo" then
+        table.sort(self.dice_pool, function(a, b)
+            local ac = a._combo_index or 999
+            local bc = b._combo_index or 999
+            if ac ~= bc then return ac < bc end
+            if a.value ~= b.value then return a.value > b.value end
+            return (a._sort_order or 0) < (b._sort_order or 0)
+        end)
     end
 end
 
