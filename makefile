@@ -12,10 +12,12 @@ LOVE_CACHE := $(BUILD_DIR)/.love-cache
 LOVE_MACOS_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSION)/love-$(LOVE_VERSION)-macos.zip
 LOVE_WIN64_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSION)/love-$(LOVE_VERSION)-win64.zip
 LOVE_LINUX_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSION)/love-$(LOVE_VERSION)-x86_64.AppImage
+LOVE_IOS_SOURCE_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSION)/love-$(LOVE_VERSION)-ios-source.zip
+LOVE_APPLE_LIBS_URL := https://github.com/love2d/love/releases/download/$(LOVE_VERSION)/love-$(LOVE_VERSION)-apple-libraries.zip
 
 EXCLUDE := -x './$(BUILD_DIR)/*' './.git/*' './.github/*' './.vscode/*' './docs/*' './makefile' './README.md' './.DS_Store' './.gitignore'
 
-.PHONY: build build-all build-macos build-windows build-linux love run dev clean clean-all help
+.PHONY: build build-all build-macos build-windows build-linux build-ios run-ios-sim love run dev clean clean-all help
 
 # ─── Help (default) ──────────────────────────────────────────────────
 help:
@@ -25,6 +27,8 @@ help:
 	@echo "  make build-macos     Build macOS .app zip"
 	@echo "  make build-windows   Build Windows .exe zip"
 	@echo "  make build-linux     Build Linux AppImage zip"
+	@echo "  make build-ios       Build iOS Simulator .app"
+	@echo "  make run-ios-sim     Install + run app on iOS Simulator"
 	@echo "  make love            Create .love archive only"
 	@echo "  make run             Run with love"
 	@echo "  make dev             Watch for changes & auto-restart"
@@ -77,6 +81,20 @@ $(LOVE_CACHE)/linux/love.AppImage:
 	@curl -sL -o $(LOVE_CACHE)/linux/love.AppImage $(LOVE_LINUX_URL)
 	@chmod +x $(LOVE_CACHE)/linux/love.AppImage
 
+$(LOVE_CACHE)/ios/src/love-$(LOVE_VERSION)-ios-source/platform/xcode/love.xcodeproj:
+	@mkdir -p $(LOVE_CACHE)/ios/src
+	@echo "[setup] Downloading LOVE $(LOVE_VERSION) iOS source ..."
+	@curl -sL -o $(LOVE_CACHE)/ios/src/_love-ios-source.zip $(LOVE_IOS_SOURCE_URL)
+	@unzip -qo $(LOVE_CACHE)/ios/src/_love-ios-source.zip -d $(LOVE_CACHE)/ios/src
+	@rm $(LOVE_CACHE)/ios/src/_love-ios-source.zip
+
+$(LOVE_CACHE)/ios/libs/love-apple-dependencies/iOS/libraries:
+	@mkdir -p $(LOVE_CACHE)/ios/libs
+	@echo "[setup] Downloading LOVE $(LOVE_VERSION) Apple libraries ..."
+	@curl -sL -o $(LOVE_CACHE)/ios/libs/_love-apple-libs.zip $(LOVE_APPLE_LIBS_URL)
+	@unzip -qo $(LOVE_CACHE)/ios/libs/_love-apple-libs.zip -d $(LOVE_CACHE)/ios/libs
+	@rm $(LOVE_CACHE)/ios/libs/_love-apple-libs.zip
+
 # ─── macOS build ─────────────────────────────────────────────────────
 build-macos: love | $(LOVE_CACHE)/macos/love.app
 	@echo "[macos] Building $(GAME_NAME).app ..."
@@ -116,6 +134,47 @@ build-linux: love | $(LOVE_CACHE)/linux/love.AppImage
 	@cd $(BUILD_DIR)/linux && zip -9 -r ../$(GAME_NAME)-linux.zip $(GAME_NAME) > /dev/null
 	@echo "[linux] -> $(BUILD_DIR)/$(GAME_NAME)-linux.zip"
 
+# ─── iOS build (Simulator) ────────────────────────────────────────────
+build-ios: love | $(LOVE_CACHE)/ios/src/love-$(LOVE_VERSION)-ios-source/platform/xcode/love.xcodeproj $(LOVE_CACHE)/ios/libs/love-apple-dependencies/iOS/libraries
+	@echo "[ios] Preparing LOVE iOS project ..."
+	@mkdir -p $(BUILD_DIR)/ios
+	@rm -rf "$(BUILD_DIR)/ios/src"
+	@cp -R "$(LOVE_CACHE)/ios/src/love-$(LOVE_VERSION)-ios-source" "$(BUILD_DIR)/ios/src"
+	@rm -rf "$(BUILD_DIR)/ios/src/platform/xcode/ios/libraries"
+	@cp -R "$(LOVE_CACHE)/ios/libs/love-apple-dependencies/iOS/libraries" "$(BUILD_DIR)/ios/src/platform/xcode/ios/libraries"
+	@DESTINATION_UDID="$$(xcrun simctl list devices available iOS | rg -o '([A-F0-9-]{36})' | head -n 1)"; \
+		[ -n "$$DESTINATION_UDID" ] || (echo "[ios] No available iOS Simulator device found." && exit 1); \
+		echo "[ios] Using simulator $$DESTINATION_UDID"
+	@echo "[ios] Building Simulator app (love-ios, Debug) ..."
+	@DESTINATION_UDID="$$(xcrun simctl list devices available iOS | rg -o '([A-F0-9-]{36})' | head -n 1)"; \
+		xcodebuild \
+			-project "$(BUILD_DIR)/ios/src/platform/xcode/love.xcodeproj" \
+			-scheme love-ios \
+			-configuration Debug \
+			-sdk iphonesimulator \
+			-destination "id=$$DESTINATION_UDID" \
+			-derivedDataPath "$(BUILD_DIR)/ios/DerivedData" \
+			build > /dev/null
+	@APP_PATH="$$(echo "$(BUILD_DIR)/ios/DerivedData/Build/Products/Debug-iphonesimulator/"*.app)"; \
+		cp "$(LOVE_FILE)" "$$APP_PATH/$(GAME_NAME).love"; \
+		echo "[ios] Fused game into $$APP_PATH/$(GAME_NAME).love"; \
+		echo "[ios] -> $$APP_PATH"
+
+run-ios-sim: build-ios
+	@echo "[ios] Booting iOS Simulator ..."
+	@xcrun simctl bootstatus booted -b >/dev/null 2>&1 || \
+		(DEVICE="$$(xcrun simctl list devices available iOS | rg -o '([A-F0-9-]{36})' | head -n 1)"; \
+		 [ -n "$$DEVICE" ] || (echo "[ios] No available iOS Simulator device found." && exit 1); \
+		 xcrun simctl boot "$$DEVICE" >/dev/null 2>&1 || true; \
+		 xcrun simctl bootstatus "$$DEVICE" -b >/dev/null)
+	@open -a Simulator
+	@APP_PATH="$$(echo "$(BUILD_DIR)/ios/DerivedData/Build/Products/Debug-iphonesimulator/"*.app)"; \
+		echo "[ios] Installing $$APP_PATH ..."; \
+		xcrun simctl install booted "$$APP_PATH"
+	@echo "[ios] Launching org.love2d.love ..."
+	@xcrun simctl terminate booted org.love2d.love >/dev/null 2>&1 || true
+	@xcrun simctl launch booted org.love2d.love
+
 # ─── Run ─────────────────────────────────────────────────────────────
 run:
 	@love .
@@ -152,7 +211,7 @@ dev:
 
 # ─── Clean ───────────────────────────────────────────────────────────
 clean:
-	@rm -rf $(LOVE_FILE) $(BUILD_DIR)/macos $(BUILD_DIR)/windows $(BUILD_DIR)/linux $(BUILD_DIR)/$(GAME_NAME)-*.zip
+	@rm -rf $(LOVE_FILE) $(BUILD_DIR)/macos $(BUILD_DIR)/windows $(BUILD_DIR)/linux $(BUILD_DIR)/ios $(BUILD_DIR)/$(GAME_NAME)-*.zip
 	@echo "Cleaned build outputs (cached LOVE downloads preserved)."
 
 clean-all:
