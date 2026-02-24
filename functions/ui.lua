@@ -29,16 +29,25 @@ UI.colors = {
 	die_red = { 0.85, 0.20, 0.20, 1 },
 	locked_tint = { 0.85, 0.15, 0.15, 0.35 },
 	free_badge = { 0.15, 0.75, 0.30, 1 },
+	item_scope_relic = { 0.95, 0.72, 0.20, 1 },
+	item_scope_diemod = { 0.35, 0.78, 0.98, 1 },
 	shadow = { 0.00, 0.00, 0.00, 0.40 },
 }
 
 local dot_positions = {
 	[1] = { { 0.5, 0.5 } },
-	[2] = { { 0.27, 0.27 }, { 0.73, 0.73 } },
-	[3] = { { 0.27, 0.27 }, { 0.5, 0.5 }, { 0.73, 0.73 } },
-	[4] = { { 0.27, 0.27 }, { 0.73, 0.27 }, { 0.27, 0.73 }, { 0.73, 0.73 } },
-	[5] = { { 0.27, 0.27 }, { 0.73, 0.27 }, { 0.5, 0.5 }, { 0.27, 0.73 }, { 0.73, 0.73 } },
-	[6] = { { 0.27, 0.27 }, { 0.73, 0.27 }, { 0.27, 0.5 }, { 0.73, 0.5 }, { 0.27, 0.73 }, { 0.73, 0.73 } },
+	[2] = { { 0.31, 0.31 }, { 0.69, 0.69 } },
+	[3] = { { 0.31, 0.31 }, { 0.5, 0.5 }, { 0.69, 0.69 } },
+	[4] = { { 0.31, 0.31 }, { 0.69, 0.31 }, { 0.31, 0.69 }, { 0.69, 0.69 } },
+	[5] = { { 0.31, 0.31 }, { 0.69, 0.31 }, { 0.5, 0.5 }, { 0.31, 0.69 }, { 0.69, 0.69 } },
+	[6] = { { 0.31, 0.31 }, { 0.69, 0.31 }, { 0.31, 0.5 }, { 0.69, 0.5 }, { 0.31, 0.69 }, { 0.69, 0.69 } },
+}
+
+local sticker_offsets = {
+	{ 0.74, 0.20 },
+	{ 0.30, 0.72 },
+	{ 0.24, 0.28 },
+	{ 0.72, 0.70 },
 }
 
 local button_anim = {}
@@ -155,7 +164,22 @@ function UI.drawButton(text, x, y, w, h, opts)
 	return hovered
 end
 
-function UI.drawDie(x, y, size, value, dot_color, body_color, locked, hovered, special_glow, boss_locked)
+function UI.drawDie(
+	x,
+	y,
+	size,
+	value,
+	dot_color,
+	body_color,
+	locked,
+	hovered,
+	special_glow,
+	boss_locked,
+	die_mods,
+	lock_click,
+	lock_click_mode,
+	lock_overlay
+)
 	local r = size * 0.15
 
 	UI.drawShadow(x, y, size, size, r, 3)
@@ -184,7 +208,7 @@ function UI.drawDie(x, y, size, value, dot_color, body_color, locked, hovered, s
 		UI.roundRect("fill", x, y, size, size, r)
 	end
 
-	local dot_r = size * 0.085
+	local dot_r = size * 0.075
 	local positions = dot_positions[value] or dot_positions[1]
 	for _, pos in ipairs(positions) do
 		local dx = x + pos[1] * size
@@ -193,6 +217,33 @@ function UI.drawDie(x, y, size, value, dot_color, body_color, locked, hovered, s
 		love.graphics.circle("fill", dx + 1, dy + 1, dot_r)
 		UI.setColor(dot_color or UI.colors.die_black)
 		love.graphics.circle("fill", dx, dy, dot_r)
+	end
+
+	if die_mods and #die_mods > 0 then
+		local Fonts = require("functions/fonts")
+		local sticker_size = math.max(11, size * 0.24)
+		local sticker_font = Fonts.get(math.max(8, math.floor(sticker_size * 0.42)))
+		local prev_font = love.graphics.getFont()
+		love.graphics.setFont(sticker_font)
+		local max_stickers = math.min(#die_mods, #sticker_offsets)
+		for i = 1, max_stickers do
+			local mod = die_mods[i]
+			local off = sticker_offsets[i]
+			local sx = x + off[1] * size - sticker_size / 2
+			local sy = y + off[2] * size - sticker_size / 2
+			love.graphics.setColor(1, 0.45, 0.45, 0.20)
+			UI.roundRect("fill", sx + 1.5, sy + 1.5, sticker_size, sticker_size, sticker_size * 0.24)
+			love.graphics.setColor(1.00, 0.86, 0.86, 0.95)
+			UI.roundRect("fill", sx, sy, sticker_size, sticker_size, sticker_size * 0.24)
+			love.graphics.setLineWidth(1.5)
+			love.graphics.setColor(1.00, 0.50, 0.50, 0.95)
+			UI.roundRect("line", sx, sy, sticker_size, sticker_size, sticker_size * 0.24)
+			love.graphics.setLineWidth(1)
+			UI.setColor({ 0.95, 0.36, 0.36, 1 })
+			local icon = tostring((mod and mod.icon) or "?")
+			love.graphics.printf(icon, sx, sy + (sticker_size - sticker_font:getHeight()) / 2, sticker_size, "center")
+		end
+		love.graphics.setFont(prev_font)
 	end
 
 	if locked and boss_locked then
@@ -235,38 +286,94 @@ function UI.drawDie(x, y, size, value, dot_color, body_color, locked, hovered, s
 
 		love.graphics.setFont(prev_font)
 	elseif locked then
-		love.graphics.setColor(0.9, 0.10, 0.10, 0.13)
-		UI.roundRect("fill", x, y, size, size, r)
-
-		love.graphics.setLineWidth(3)
-		love.graphics.setColor(0.9, 0.20, 0.20, 0.80)
-		UI.roundRect("line", x, y, size, size, r)
-		love.graphics.setLineWidth(1)
+		local lock_click_dur = 0.20
+		local click_t = math.max(0, math.min(lock_click or 0, lock_click_dur))
+		local elapsed = lock_click_dur - click_t
+		local down_time = 0.13
+		local top_factor = 0.30
+		if elapsed > 0 then
+			local mode = lock_click_mode or 1
+			if mode == -1 then
+				if elapsed <= down_time then
+					local p = elapsed / down_time
+					local eased = 1 - (1 - p) ^ 3
+					top_factor = 0.30 + 0.05 * eased
+				else
+					local ret_p = math.min(1, (elapsed - down_time) / (lock_click_dur - down_time))
+					local eased = ret_p * ret_p
+					top_factor = 0.35 - 0.05 * eased
+				end
+			else
+				if elapsed <= down_time then
+					local p = elapsed / down_time
+					local eased = 1 - (1 - p) ^ 3
+					top_factor = 0.30 - 0.05 * eased
+				else
+					local up_p = math.min(1, (elapsed - down_time) / (lock_click_dur - down_time))
+					local eased = up_p * up_p
+					top_factor = 0.25 + 0.05 * eased
+				end
+			end
+		end
 
 		local cx = x + size / 2
-		local cy = y + size / 2
-		local body_w = size * 0.32
-		local body_h = size * 0.24
-		local body_x = cx - body_w / 2
-		local body_y = cy - body_h / 2 + size * 0.06
-		local body_r = math.max(2, size * 0.03)
+		local outer_w = size * 0.5
+		local half_w = outer_w * 0.5
+		local top_y = y - size * top_factor
+		local attach_y = y + size * 0.01
+		local shackle_lw = math.max(2, size * 0.094)
+		local corner_r = size * 0.17
+		local left_x = cx - half_w + corner_r
+		local right_x = cx + half_w - corner_r
+		local leg_left_x = cx - half_w
+		local leg_right_x = cx + half_w
+		local corner_cy = top_y + corner_r
 
-		local shackle_r = body_w * 0.34
-		local shackle_lw = math.max(2.5, size * 0.045)
+		local function drawShackleShape(offset_x, offset_y)
+			local ox = offset_x or 0
+			local oy = offset_y or 0
+			love.graphics.line(left_x + ox, top_y + oy, right_x + ox, top_y + oy)
+			love.graphics.line(leg_left_x + ox, corner_cy + oy, leg_left_x + ox, attach_y + oy)
+			love.graphics.line(leg_right_x + ox, corner_cy + oy, leg_right_x + ox, attach_y + oy)
+			love.graphics.arc("line", "open", left_x + ox, corner_cy + oy, corner_r, math.pi, math.pi * 1.5)
+			love.graphics.arc("line", "open", right_x + ox, corner_cy + oy, corner_r, math.pi * 1.5, math.pi * 2)
+		end
+
+		love.graphics.setLineWidth(shackle_lw + 2)
+		love.graphics.setColor(0.33, 0.18, 0.05, 0.70)
+		drawShackleShape(1, 1)
 		love.graphics.setLineWidth(shackle_lw)
-		love.graphics.setColor(1, 1, 1, 0.80)
-		love.graphics.arc("line", "open", cx, body_y, shackle_r, math.pi, 0)
+		love.graphics.setColor(0.92, 0.60, 0.19, 0.92)
+		drawShackleShape(0, 0)
+
+		local inner_lw = math.max(1, shackle_lw * 0.34)
+		love.graphics.setLineWidth(inner_lw)
+		love.graphics.setColor(0.99, 0.89, 0.48, 0.82)
+		love.graphics.line(left_x + shackle_lw * 0.22, top_y - inner_lw * 0.1, right_x - shackle_lw * 0.22, top_y - inner_lw * 0.1)
+		love.graphics.setColor(0.97, 0.78, 0.31, 0.70)
+		love.graphics.line(leg_left_x + shackle_lw * 0.28, corner_cy + shackle_lw * 0.25, leg_left_x + shackle_lw * 0.28, attach_y - shackle_lw * 0.20)
 		love.graphics.setLineWidth(1)
 
-		love.graphics.setColor(1, 1, 1, 0.80)
-		love.graphics.rectangle("fill", body_x, body_y, body_w, body_h, body_r, body_r)
+		local anchor_w = size * 0.15
+		local anchor_h = size * 0.055
+		local anchor_y = attach_y - anchor_h * 0.30
+		love.graphics.setColor(0.33, 0.18, 0.05, 0.58)
+		UI.roundRect("fill", leg_left_x - anchor_w / 2 + 1, anchor_y + 1, anchor_w, anchor_h, anchor_h * 0.28)
+		UI.roundRect("fill", leg_right_x - anchor_w / 2 + 1, anchor_y + 1, anchor_w, anchor_h, anchor_h * 0.28)
+		love.graphics.setColor(0.93, 0.62, 0.22, 0.84)
+		UI.roundRect("fill", leg_left_x - anchor_w / 2, anchor_y, anchor_w, anchor_h, anchor_h * 0.28)
+		UI.roundRect("fill", leg_right_x - anchor_w / 2, anchor_y, anchor_w, anchor_h, anchor_h * 0.28)
 
-		local kh_r = body_h * 0.16
-		local kh_cx = cx
-		local kh_cy = body_y + body_h * 0.38
-		love.graphics.setColor(0.75, 0.15, 0.15, 0.95)
-		love.graphics.circle("fill", kh_cx, kh_cy, kh_r)
-		love.graphics.rectangle("fill", kh_cx - kh_r * 0.45, kh_cy, kh_r * 0.9, body_h * 0.30)
+		-- Keep shackle beneath lock/combo overlays.
+		if lock_overlay ~= false then
+			love.graphics.setColor(0.9, 0.10, 0.10, 0.13)
+			UI.roundRect("fill", x, y, size, size, r)
+
+			love.graphics.setLineWidth(3)
+			love.graphics.setColor(0.9, 0.20, 0.20, 0.80)
+			UI.roundRect("line", x, y, size, size, r)
+			love.graphics.setLineWidth(1)
+		end
 	end
 end
 

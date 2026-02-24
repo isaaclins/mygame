@@ -77,6 +77,10 @@ local function resetDieAnims(player)
 			hover_scale = 1,
 			y_off = 0,
 			lock_flash = 0,
+			lock_click = 0,
+			lock_click_mode = 0,
+			unlock_twist = 0,
+			close_twist = 0,
 			bounce = 0,
 			pop_scale = 1,
 			echo_flash = 0,
@@ -193,6 +197,12 @@ function Round:update(dt, player)
 			da.hover_scale = da.hover_scale + (target_scale - da.hover_scale) * math.min(1, 10 * dt)
 			da.y_off = da.y_off + (target_y - da.y_off) * math.min(1, 10 * dt)
 			da.lock_flash = math.max(0, da.lock_flash - dt * 4)
+			da.lock_click = math.max(0, (da.lock_click or 0) - dt)
+			da.unlock_twist = math.max(0, (da.unlock_twist or 0) - dt)
+			da.close_twist = math.max(0, (da.close_twist or 0) - dt)
+			if da.lock_click <= 0 then
+				da.lock_click_mode = 0
+			end
 			da.bounce = da.bounce * math.max(0, 1 - dt * 6)
 			da.pop_scale = da.pop_scale + (1.0 - da.pop_scale) * math.min(1, 8 * dt)
 			da.echo_flash = math.max(0, (da.echo_flash or 0) - dt * 1.8)
@@ -373,14 +383,9 @@ function Round:updatePreview(player)
 		end
 	end
 
-	local saved_triggers = {}
-	for i, item in ipairs(player.items) do
-		saved_triggers[i] = item.triggered_this_round
-	end
+	local saved_triggers = player:getItemTriggerSnapshot()
 	player:applyItems(context)
-	for i, item in ipairs(player.items) do
-		item.triggered_this_round = saved_triggers[i]
-	end
+	player:restoreItemTriggerSnapshot(saved_triggers)
 
 	local combo, hand_total = Scoring.findOptimalCombination(values, player.hands)
 	preview_combo = combo
@@ -685,7 +690,18 @@ function Round:drawDice(player, W, H)
 
 	for i, die in ipairs(player.dice_pool) do
 		local dx, dy = getDiePosition(layout, i, count)
-		local da = die_anims[i] or { hover_scale = 1, y_off = 0, lock_flash = 0, bounce = 0, pop_scale = 1 }
+		local da = die_anims[i]
+			or {
+				hover_scale = 1,
+				y_off = 0,
+				lock_flash = 0,
+				lock_click = 0,
+				lock_click_mode = 0,
+				unlock_twist = 0,
+				close_twist = 0,
+				bounce = 0,
+				pop_scale = 1,
+			}
 		local hovered = UI.pointInRect(mx, my, dx - 4, dy - 4, layout.die_size + 8, layout.die_size + 8)
 		local dot_color = die_colors_map[die.color] or UI.colors.die_black
 		local is_selected = (i == selected_die_index and sub_state == "choosing")
@@ -718,7 +734,61 @@ function Round:drawDice(player, W, H)
 				end
 			end
 		end
-		UI.drawDie(draw_x, draw_y, s, die.value, dot_color, nil, die.locked, hovered, die.glow_color, is_boss_locked)
+		local lock_click_mode = da.lock_click_mode or 0
+		local lock_click = da.lock_click or 0
+		local draw_locked_visual = die.locked or (lock_click_mode == -1 and lock_click > 0)
+		local unlock_twist = da.unlock_twist or 0
+		local unlock_twist_dur = 0.18
+		local close_twist = da.close_twist or 0
+		local close_twist_dur = 0.18
+		local rotate_angle = 0
+		if unlock_twist > 0 then
+			local p = unlock_twist / unlock_twist_dur
+			rotate_angle = math.rad(3.0) * p * p
+		end
+		if close_twist > 0 then
+			local p = 1 - (close_twist / close_twist_dur)
+			rotate_angle = rotate_angle - math.rad(3.0) * math.sin(math.pi * 2 * p)
+		end
+		if rotate_angle ~= 0 then
+			love.graphics.push()
+			love.graphics.translate(draw_x + s / 2, draw_y + s / 2)
+			love.graphics.rotate(rotate_angle)
+			UI.drawDie(
+				-s / 2,
+				-s / 2,
+				s,
+				die.value,
+				dot_color,
+				nil,
+				draw_locked_visual,
+				hovered,
+				die.glow_color,
+				is_boss_locked,
+				die.items,
+				lock_click,
+				lock_click_mode,
+				die.locked
+			)
+			love.graphics.pop()
+		else
+			UI.drawDie(
+				draw_x,
+				draw_y,
+				s,
+				die.value,
+				dot_color,
+				nil,
+				draw_locked_visual,
+				hovered,
+				die.glow_color,
+				is_boss_locked,
+				die.items,
+				lock_click,
+				lock_click_mode,
+				die.locked
+			)
+		end
 
 		local hi = die_hand_index[i]
 		if hi then
@@ -785,19 +855,17 @@ function Round:drawDice(player, W, H)
 			)
 		end
 
-		if sub_state == "choosing" then
-			local show_for_hover = hovered
-			local show_for_select = show_selection and tooltip_visible
-			if show_for_hover or show_for_select then
-				tooltip_die = { die = die, index = i, hand_index = die_hand_index[i], boss_locked = is_boss_locked }
-				tooltip_dx = draw_x
-				tooltip_dy = draw_y
-				tooltip_s = s
-			end
+		local show_for_hover = hovered and tooltip_visible
+		local show_for_select = (sub_state == "choosing") and show_selection and tooltip_visible
+		if show_for_hover or show_for_select then
+			tooltip_die = { die = die, index = i, hand_index = die_hand_index[i], boss_locked = is_boss_locked }
+			tooltip_dx = draw_x
+			tooltip_dy = draw_y
+			tooltip_s = s
 		end
 	end
 
-	if tooltip_die and #preview_combo > 0 then
+	if tooltip_die and tooltip_visible then
 		self:drawDieTooltip(tooltip_die, tooltip_dx, tooltip_dy, tooltip_s, W, H)
 	end
 end
@@ -810,6 +878,8 @@ function Round:drawDieTooltip(info, dx, dy, s, W, H)
 	local pad = 10
 
 	local has_ability = die.ability_name ~= "None" and die.ability_name ~= "Broken"
+	local has_combo_info = (sub_state == "choosing" and #preview_combo > 0) or (sub_state == "scoring" and #round_combo > 0)
+	local mod_items = die.items or {}
 	local desc_font = Fonts.get(11)
 	local desc_lines = 0
 	if has_ability and die.ability_desc and #die.ability_desc > 0 then
@@ -820,9 +890,10 @@ function Round:drawDieTooltip(info, dx, dy, s, W, H)
 	local tip_h = pad
 		+ 20
 		+ (has_ability and (16 + desc_lines * 13 + 6) or 0)
+		+ (#mod_items > 0 and (18 + #mod_items * 13 + 6) or 0)
 		+ 2
 		+ 18
-		+ (#preview_combo > 0 and 18 or 0)
+		+ (has_combo_info and 18 or 0)
 		+ pad
 
 	local tip_x = dx + s / 2 - tip_w / 2
@@ -863,6 +934,20 @@ function Round:drawDieTooltip(info, dx, dy, s, W, H)
 		ly = ly + 6
 	end
 
+	if #mod_items > 0 then
+		love.graphics.setFont(Fonts.get(11))
+		love.graphics.setColor(UI.colors.item_scope_diemod[1], UI.colors.item_scope_diemod[2], UI.colors.item_scope_diemod[3], 0.9)
+		love.graphics.printf("Die Mods", tip_x + pad, ly, tip_w - pad * 2, "left")
+		ly = ly + 16
+		love.graphics.setFont(Fonts.get(11))
+		UI.setColor(UI.colors.text_dim)
+		for _, mod in ipairs(mod_items) do
+			love.graphics.printf("[" .. mod.icon .. "] " .. mod.name, tip_x + pad, ly, tip_w - pad * 2, "left")
+			ly = ly + 13
+		end
+		ly = ly + 6
+	end
+
 	love.graphics.setColor(UI.colors.text_dark[1], UI.colors.text_dark[2], UI.colors.text_dark[3], 0.5)
 	love.graphics.line(tip_x + pad, ly, tip_x + tip_w - pad, ly)
 	ly = ly + 4
@@ -882,10 +967,11 @@ function Round:drawDieTooltip(info, dx, dy, s, W, H)
 	end
 	ly = ly + 18
 
-	if #preview_combo > 0 then
+	if has_combo_info then
 		if hi then
 			local hc = getHandColor(hi)
-			local entry = preview_combo[hi]
+			local combo_ref = (sub_state == "scoring") and round_combo or preview_combo
+			local entry = combo_ref[hi]
 			local name = Scoring.comboEntryName(entry)
 			love.graphics.setColor(hc[1], hc[2], hc[3], 1)
 			love.graphics.printf(name .. " (+" .. die.value .. ")", tip_x + pad, ly, tip_w - pad * 2, "left")
@@ -1569,11 +1655,23 @@ local function doLockDie(self, player, idx)
 		return
 	end
 
+	local was_locked = die.locked
 	player:lockDie(idx)
 	local da = die_anims[idx]
 	if da then
-		da.pop_scale = 1.15
+		da.pop_scale = die.locked and 1.025 or 0.985
 		da.lock_flash = 1.0
+		if (not was_locked) and die.locked then
+			da.lock_click = 0.20
+			da.lock_click_mode = 1
+			da.unlock_twist = 0
+			da.close_twist = 0.18
+		elseif was_locked and (not die.locked) then
+			da.lock_click = 0.20
+			da.lock_click_mode = -1
+			da.unlock_twist = 0.18
+			da.close_twist = 0
+		end
 	end
 	self:updatePreview(player)
 	if Tutorial:isActive() then
@@ -1592,13 +1690,7 @@ local function doReroll(player)
 		if not die.locked and die.die_type == "glass" then
 			if RNG.random() < 0.10 then
 				local insured = false
-				for _, item in ipairs(player.items) do
-					if item.name == "Insurance" and not item.triggered_this_round then
-						item.triggered_this_round = true
-						insured = true
-						break
-					end
-				end
+				insured = player:consumeItemChargeByName("Insurance")
 				if not insured then
 					die.die_type = "broken"
 					die.ability = nil
@@ -1670,8 +1762,12 @@ local function applyBulkWild(self, player, value)
 					player:lockDie(i)
 					local da = die_anims[i]
 					if da then
-						da.pop_scale = 1.15
+						da.pop_scale = 1.025
 						da.lock_flash = 1.0
+						da.lock_click = 0.20
+						da.lock_click_mode = 1
+						da.unlock_twist = 0
+						da.close_twist = 0.18
 					end
 				end
 			end

@@ -8,6 +8,7 @@ local function createItems()
 			icon = "R+",
 			cost = 10,
 			trigger_type = "passive",
+			target_scope = "personal",
 			effect = function(self, context)
 				if context and context.phase == "round_start" and context.player then
 					context.player.max_rerolls = context.player.max_rerolls + 1
@@ -17,33 +18,29 @@ local function createItems()
 		}),
 		Item:new({
 			name = "Even Steven",
-			description = "All even dice add ×1.5 multiplier bonus",
+			description = "This die adds +0.5 mult when it rolls even",
 			icon = "2x",
 			cost = 15,
 			trigger_type = "once",
+			target_scope = "dice",
+			targeting = "shop_select_die",
 			effect = function(self, context)
-				if context and context.scoring and context.dice_pool then
-					for _, die in ipairs(context.dice_pool) do
-						if die.value % 2 == 0 then
-							context.mult_bonus = (context.mult_bonus or 0) + 0.5
-						end
-					end
+				if context and context.scoring and context.owner_die and context.owner_die.value % 2 == 0 then
+					context.mult_bonus = (context.mult_bonus or 0) + 0.5
 				end
 			end,
 		}),
 		Item:new({
 			name = "Odd Todd",
-			description = "All odd dice add ×1.5 multiplier bonus",
+			description = "This die adds +0.5 mult when it rolls odd",
 			icon = "1x",
 			cost = 15,
 			trigger_type = "once",
+			target_scope = "dice",
+			targeting = "shop_select_die",
 			effect = function(self, context)
-				if context and context.scoring and context.dice_pool then
-					for _, die in ipairs(context.dice_pool) do
-						if die.value % 2 == 1 then
-							context.mult_bonus = (context.mult_bonus or 0) + 0.5
-						end
-					end
+				if context and context.scoring and context.owner_die and context.owner_die.value % 2 == 1 then
+					context.mult_bonus = (context.mult_bonus or 0) + 0.5
 				end
 			end,
 		}),
@@ -53,6 +50,7 @@ local function createItems()
 			icon = "$+",
 			cost = 8,
 			trigger_type = "once",
+			target_scope = "personal",
 			effect = function(self, context)
 				if context and context.phase == "earn" and context.player then
 					local bonus = 3
@@ -69,6 +67,7 @@ local function createItems()
 			icon = "!",
 			cost = 12,
 			trigger_type = "passive",
+			target_scope = "personal",
 			effect = function(self, context) end,
 		}),
 		Item:new({
@@ -77,6 +76,7 @@ local function createItems()
 			icon = "H+",
 			cost = 20,
 			trigger_type = "once",
+			target_scope = "personal",
 			effect = function(self, context)
 				if context and context.scoring then
 					context.bonus = (context.bonus or 0) + 15
@@ -85,16 +85,17 @@ local function createItems()
 		}),
 		Item:new({
 			name = "Loaded Dice",
-			description = "All dice slightly favor high numbers",
+			description = "This die slightly favors high numbers",
 			icon = "L",
 			cost = 18,
 			trigger_type = "passive",
+			target_scope = "dice",
+			targeting = "shop_select_die",
 			effect = function(self, context)
-				if context and context.phase == "round_start" and context.player then
-					for _, die in ipairs(context.player.dice_pool) do
-						if die.die_type == "Normal" then
-							die.weights = { 0.8, 0.8, 1.0, 1.1, 1.2, 1.3 }
-						end
+				if context and context.phase == "round_start" and context.owner_die then
+					local die = context.owner_die
+					if die.die_type == "Normal" or die.die_type == "vanilla" then
+						die.weights = { 0.8, 0.8, 1.0, 1.1, 1.2, 1.3 }
 					end
 				end
 			end,
@@ -106,6 +107,7 @@ local function createItems()
 			cost = 500,
 			consumable = true,
 			trigger_type = "passive",
+			target_scope = "personal",
 			dynamic_cost = function(player)
 				return 500 * math.floor(2 ^ player.limit_break_count)
 			end,

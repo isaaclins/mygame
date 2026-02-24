@@ -4,7 +4,6 @@ local Tween = require("functions/tween")
 local Toast = require("functions/toast")
 local Die = require("objects/die")
 local Player = require("objects/player")
-local Item = require("objects/item")
 local createHands = require("content/hands")
 local createDiceTypes = require("content/dice_types")
 local createItems = require("content/items")
@@ -262,7 +261,7 @@ local function drawDiceTab(px, py, pw, ph)
 			dot_color = UI.colors.die_red
 		end
 
-		UI.drawDie(dx, ly, die_size, die.value, dot_color, nil, false, false, die.glow_color)
+		UI.drawDie(dx, ly, die_size, die.value, dot_color, nil, false, false, die.glow_color, false, die.items)
 
 		love.graphics.setFont(small_font)
 		UI.setColor(UI.colors.text_dim)
@@ -606,17 +605,7 @@ function DevMenu:handleButton(id)
 				table.remove(draft.items, found_idx)
 				Toast.show("Removed " .. item.name, "error")
 			else
-				table.insert(
-					draft.items,
-					Item:new({
-						name = item.name,
-						description = item.description,
-						icon = item.icon,
-						cost = item.cost,
-						trigger_type = item.trigger_type,
-						effect = item.effect,
-					})
-				)
+				table.insert(draft.items, item:clone())
 				Toast.show("Added " .. item.name, "success")
 			end
 		end

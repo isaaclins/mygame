@@ -166,20 +166,29 @@ function GameOver:draw(player)
 	end
 
 	local sa5 = stats_anims[5]
-	if sa5 and sa5.alpha > 0 and #player.items > 0 then
+	if sa5 and sa5.alpha > 0 then
 		local item_names = {}
 		for _, item in ipairs(player.items) do
 			table.insert(item_names, item.name)
 		end
+		for di, die in ipairs(player.dice_pool) do
+			for _, item in ipairs(die.items or {}) do
+				table.insert(item_names, "D" .. di .. ":" .. item.name)
+			end
+		end
+		if #item_names == 0 then
+			goto continue_stats
+		end
 		love.graphics.setFont(Fonts.get(18))
 		love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], sa5.alpha)
 		love.graphics.printf(
-			"Items: " .. table.concat(item_names, ", "),
+			"Relics & Die Mods: " .. table.concat(item_names, ", "),
 			W * 0.15,
 			stats_y + 130 + sa5.y_off,
 			W * 0.7,
 			"center"
 		)
+		::continue_stats::
 	end
 
 	if seed_anim.alpha > 0 and player.seed and #player.seed > 0 then

@@ -169,15 +169,90 @@ function Player:addItem(item)
 	table.insert(self.items, item)
 end
 
-function Player:applyItems(context)
+function Player:forEachItem(fn)
 	for _, item in ipairs(self.items) do
-		item:apply(context)
+		fn(item, nil)
+	end
+	for _, die in ipairs(self.dice_pool) do
+		for _, item in ipairs(die.items or {}) do
+			fn(item, die)
+		end
 	end
 end
 
-function Player:resetItemTriggers()
+function Player:applyItems(context)
+	context = context or { player = self, dice_pool = self.dice_pool }
 	for _, item in ipairs(self.items) do
+		item:apply(context)
+	end
+	local previous_owner = context.owner_die
+	for _, die in ipairs(self.dice_pool) do
+		context.owner_die = die
+		for _, item in ipairs(die.items or {}) do
+			item:apply(context)
+		end
+	end
+	context.owner_die = previous_owner
+end
+
+function Player:resetItemTriggers()
+	self:forEachItem(function(item)
 		item:resetRound()
+	end)
+end
+
+function Player:consumeItemChargeByName(name)
+	for _, item in ipairs(self.items) do
+		if item.name == name and not item.triggered_this_round then
+			item.triggered_this_round = true
+			return true
+		end
+	end
+	for _, die in ipairs(self.dice_pool) do
+		for _, item in ipairs(die.items or {}) do
+			if item.name == name and not item.triggered_this_round then
+				item.triggered_this_round = true
+				return true
+			end
+		end
+	end
+	return false
+end
+
+function Player:getItemTriggerSnapshot()
+	local snapshot = { personal = {}, dice = {} }
+	for i, item in ipairs(self.items) do
+		snapshot.personal[i] = item.triggered_this_round
+	end
+	for di, die in ipairs(self.dice_pool) do
+		snapshot.dice[di] = {}
+		for ii, item in ipairs(die.items or {}) do
+			snapshot.dice[di][ii] = item.triggered_this_round
+		end
+	end
+	return snapshot
+end
+
+function Player:restoreItemTriggerSnapshot(snapshot)
+	if not snapshot then
+		return
+	end
+	for i, item in ipairs(self.items) do
+		local v = snapshot.personal and snapshot.personal[i]
+		if v ~= nil then
+			item.triggered_this_round = v
+		end
+	end
+	for di, die in ipairs(self.dice_pool) do
+		local die_snapshot = snapshot.dice and snapshot.dice[di]
+		if die_snapshot then
+			for ii, item in ipairs(die.items or {}) do
+				local v = die_snapshot[ii]
+				if v ~= nil then
+					item.triggered_this_round = v
+				end
+			end
+		end
 	end
 end
 
@@ -194,7 +269,14 @@ function Player:startNewRound()
 
 	for _, item in ipairs(self.items) do
 		if item.trigger_type == "passive" then
-			item:apply({ player = self, phase = "round_start" })
+			item:apply({ player = self, dice_pool = self.dice_pool, phase = "round_start" })
+		end
+	end
+	for _, die in ipairs(self.dice_pool) do
+		for _, item in ipairs(die.items or {}) do
+			if item.trigger_type == "passive" then
+				item:apply({ player = self, dice_pool = self.dice_pool, owner_die = die, phase = "round_start" })
+			end
 		end
 	end
 end
@@ -228,7 +310,7 @@ function Player:earnCurrency(score)
 		total = total + self.rerolls_remaining
 	end
 
-	local interest = math.min(self.interest_cap, math.floor(self.currency / 5))
+	local interest = math.floor(self.currency / 5)
 	if interest > 0 then
 		table.insert(breakdown, { label = "Interest (1 per $5)", amount = interest })
 		total = total + interest

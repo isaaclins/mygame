@@ -17,8 +17,27 @@ function Die:init(opts)
 	self.roll_timer = 0
 	self.rolling = false
 	self.glow_color = opts.glow_color or nil
+	self.items = opts.items or {}
 
 	self.weights = opts.weights or { 1, 1, 1, 1, 1, 1 }
+end
+
+function Die:addItem(item)
+	table.insert(self.items, item)
+end
+
+function Die:removeItem(index)
+	if index >= 1 and index <= #self.items then
+		table.remove(self.items, index)
+		return true
+	end
+	return false
+end
+
+function Die:applyItems(context)
+	for _, item in ipairs(self.items) do
+		item:apply(context)
+	end
 end
 
 function Die:roll()
@@ -99,6 +118,12 @@ function Die:upgrade()
 end
 
 function Die:clone()
+	local copied_items = {}
+	for _, item in ipairs(self.items or {}) do
+		if item.clone then
+			table.insert(copied_items, item:clone())
+		end
+	end
 	return Die:new({
 		name = self.name,
 		color = self.color,
@@ -110,6 +135,7 @@ function Die:clone()
 		die_type = self.die_type,
 		weights = { unpack(self.weights) },
 		glow_color = self.glow_color,
+		items = copied_items,
 	})
 end
 

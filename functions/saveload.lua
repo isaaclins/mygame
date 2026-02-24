@@ -62,6 +62,7 @@ function SaveLoad.serializeDie(die)
 		upgrade_level = die.upgrade_level,
 		max_upgrade = die.max_upgrade,
 		weights = {},
+		items = {},
 	}
 	for i, w in ipairs(die.weights) do
 		data.weights[i] = w
@@ -71,6 +72,12 @@ function SaveLoad.serializeDie(die)
 	end
 	if die._sort_order then
 		data._sort_order = die._sort_order
+	end
+	for _, item in ipairs(die.items or {}) do
+		table.insert(data.items, {
+			name = item.name,
+			triggered_this_round = item.triggered_this_round or false,
+		})
 	end
 	return data
 end
@@ -90,7 +97,7 @@ function SaveLoad.buildSaveData(game_state, player, rng_state, current_boss_name
 		return nil
 	end
 	local data = {
-		version = 2,
+		version = 3,
 		state = game_state,
 		seed = player.seed or "",
 		rng_state = rng_state or "",
@@ -167,7 +174,7 @@ function SaveLoad.load()
 		return nil
 	end
 
-	if data.version ~= 1 and data.version ~= 2 then
+	if data.version ~= 1 and data.version ~= 2 and data.version ~= 3 then
 		print("[load] Incompatible save version")
 		return nil
 	end
@@ -269,21 +276,31 @@ function SaveLoad.restorePlayer(data, Player, Die, createDiceTypes, createItems,
 	for _, item in ipairs(all_items) do
 		item_lookup[item.name] = item
 	end
-	local item_state_lookup = {}
-	for _, st in ipairs(data.item_states or {}) do
-		if st.name then
-			item_state_lookup[st.name] = st
-		end
-	end
 	player.items = {}
-	for _, name in ipairs(data.item_names or {}) do
+	for idx, name in ipairs(data.item_names or {}) do
 		local item = item_lookup[name]
 		if item then
-			local st = item_state_lookup[name]
+			local restored = item:clone()
+			local st = (data.item_states or {})[idx]
 			if st then
-				item.triggered_this_round = st.triggered_this_round or false
+				restored.triggered_this_round = st.triggered_this_round or false
 			end
-			table.insert(player.items, item)
+			table.insert(player.items, restored)
+		end
+	end
+
+	for di, dd in ipairs(data.dice_pool or {}) do
+		local die = player.dice_pool[di]
+		if die and dd.items then
+			die.items = {}
+			for _, saved in ipairs(dd.items) do
+				local template = item_lookup[saved.name]
+				if template then
+					local restored = template:clone()
+					restored.triggered_this_round = saved.triggered_this_round or false
+					table.insert(die.items, restored)
+				end
+			end
 		end
 	end
 

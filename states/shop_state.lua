@@ -28,6 +28,8 @@ local hand_examples = {
 local shop = nil
 local replacing_die = nil
 local selected_shop_die = nil
+local selected_shop_item = nil
+local replace_mode = "die"
 
 local section_anims = {}
 local currency_anim = { display = 0 }
@@ -38,6 +40,9 @@ local shop_row = 1
 local shop_mode = "grid"
 local replace_focus = 1
 local shop_visible_hands = {}
+local hovered_player_die = nil
+local hovered_player_die_anchor_x = 0
+local hovered_player_die_anchor_y = 0
 
 local BULK_OPTIONS = { 1, 10, 100, -1 }
 local BULK_LABELS = { [1] = "x1", [10] = "x10", [100] = "x100", [-1] = "MAX" }
@@ -73,12 +78,17 @@ function ShopState:init(player, all_dice_types, all_items)
 	shop:generate(player, all_dice_types, all_items)
 	replacing_die = nil
 	selected_shop_die = nil
+	selected_shop_item = nil
+	replace_mode = "die"
 	card_hovers = {}
 	shop_col = 1
 	shop_row = 1
 	shop_mode = "grid"
 	replace_focus = 1
 	bulk_index = 1
+	hovered_player_die = nil
+	hovered_player_die_anchor_x = 0
+	hovered_player_die_anchor_y = 0
 
 	local sort_mode = Settings.get("dice_sort_mode") or "default"
 	player:sortDice(sort_mode)
@@ -124,6 +134,9 @@ function ShopState:draw(player)
 	self:drawItemsSection(player, W, H)
 	self:drawShopHandReference(player, W, H)
 	self:drawContinueButton(W, H)
+	if not replacing_die and hovered_player_die then
+		self:drawDieModTooltip(hovered_player_die, hovered_player_die_anchor_x, hovered_player_die_anchor_y, W, H)
+	end
 
 	if not replacing_die then
 		love.graphics.setFont(Fonts.get(11))
@@ -195,16 +208,32 @@ function ShopState:drawPlayerDice(player, W, H)
 	UI.setColor(UI.colors.text_dim)
 	love.graphics.printf("YOUR DICE", 0, 66, W, "center")
 
+	local hovered_die = nil
+	local hovered_dx, hovered_dy, hovered_size = 0, 0, 0
+	local mx, my = love.mouse.getPosition()
 	for i, die in ipairs(player.dice_pool) do
 		local col = (i - 1) % cols
 		local row = math.floor((i - 1) / cols)
 		local dx = start_x + col * (die_size + gap)
 		local dy = base_y + row * row_h
+		if UI.pointInRect(mx, my, dx, dy, die_size, die_size) then
+			hovered_die = die
+			hovered_dx, hovered_dy, hovered_size = dx, dy, die_size
+		end
 		local dot_color = die_colors_map[die.color] or UI.colors.die_black
-		UI.drawDie(dx, dy, die_size, die.value, dot_color, nil, false, false, die.glow_color)
+		UI.drawDie(dx, dy, die_size, die.value, dot_color, nil, false, false, die.glow_color, false, die.items)
 		love.graphics.setFont(Fonts.get(9))
 		UI.setColor(UI.colors.text_dim)
 		love.graphics.printf(die.name, dx - 5, dy + die_size + 2, die_size + 10, "center")
+	end
+
+	hovered_player_die = hovered_die
+	if hovered_die then
+		hovered_player_die_anchor_x = hovered_dx + hovered_size * 0.5
+		hovered_player_die_anchor_y = hovered_dy
+	else
+		hovered_player_die_anchor_x = 0
+		hovered_player_die_anchor_y = 0
 	end
 
 	self._dice_bar_height = base_y + rows * row_h
@@ -533,6 +562,13 @@ function ShopState:drawDiceSection(player, W, H)
 	love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], sa.alpha)
 	love.graphics.printf("DICE", section_x, section_y + 10, section_w, "center")
 
+	-- Keep the dice shop continuously filled to the visible capacity of this panel.
+	local card_step = 80
+	local first_card_y = section_y + 40
+	local card_h = 72
+	local visible_slots = math.max(1, math.floor((section_y + section_h - first_card_y - card_h) / card_step) + 1)
+	shop:ensureDiceOffers(visible_slots)
+
 	self._dice_buttons = {}
 	local mx, my = love.mouse.getPosition()
 
@@ -579,7 +615,9 @@ function ShopState:drawDiceSection(player, W, H)
 			nil,
 			false,
 			false,
-			die.glow_color
+			die.glow_color,
+			false,
+			die.items
 		)
 
 		love.graphics.setFont(Fonts.get(14))
@@ -628,7 +666,7 @@ function ShopState:drawItemsSection(player, W, H)
 
 	love.graphics.setFont(Fonts.get(18))
 	love.graphics.setColor(UI.colors.accent[1], UI.colors.accent[2], UI.colors.accent[3], sa.alpha)
-	love.graphics.printf("ITEMS", section_x, section_y + 10, section_w, "center")
+	love.graphics.printf("RELICS & DIE MODS", section_x, section_y + 10, section_w, "center")
 
 	self._item_buttons = {}
 	local mx, my = love.mouse.getPosition()
@@ -665,6 +703,12 @@ function ShopState:drawItemsSection(player, W, H)
 		love.graphics.setFont(Fonts.get(14))
 		love.graphics.setColor(UI.colors.text[1], UI.colors.text[2], UI.colors.text[3], dim)
 		love.graphics.print("[" .. item.icon .. "] " .. item.name, item_x + 8, iy + 6 + ch.lift)
+		local badge_text = (item.target_scope == "dice") and "DIE MOD" or "RELIC"
+		local badge_color = (item.target_scope == "dice") and UI.colors.item_scope_diemod or UI.colors.item_scope_relic
+		local badge_font = Fonts.get(9)
+		love.graphics.setFont(badge_font)
+		love.graphics.setColor(badge_color[1], badge_color[2], badge_color[3], 0.9 * dim)
+		love.graphics.printf(badge_text, item_x, iy + 8 + ch.lift, item_w - 90, "right")
 
 		love.graphics.setFont(Fonts.get(11))
 		love.graphics.setColor(UI.colors.text_dim[1], UI.colors.text_dim[2], UI.colors.text_dim[3], dim)
@@ -688,13 +732,33 @@ function ShopState:drawItemsSection(player, W, H)
 		love.graphics.printf("No items available", section_x, section_y + 60, section_w, "center")
 	end
 
-	if #player.items > 0 then
+	local owned_relics = player.items or {}
+	local owned_mod_lines = {}
+	for di, die in ipairs(player.dice_pool) do
+		for _, item in ipairs(die.items or {}) do
+			table.insert(owned_mod_lines, "D" .. di .. ": [" .. item.icon .. "] " .. item.name)
+		end
+	end
+	if #owned_relics > 0 or #owned_mod_lines > 0 then
 		love.graphics.setFont(Fonts.get(12))
-		local owned_y = section_y + section_h - 20 - #player.items * 16
+		local owned_lines = 2 + #owned_relics + #owned_mod_lines
+		local owned_y = section_y + section_h - 20 - owned_lines * 14
 		UI.setColor(UI.colors.text_dim)
-		love.graphics.print("Owned:", section_x + 14, owned_y)
-		for i, item in ipairs(player.items) do
-			love.graphics.print("  [" .. item.icon .. "] " .. item.name, section_x + 14, owned_y + i * 16)
+		love.graphics.print("Owned Relics:", section_x + 14, owned_y)
+		for i, item in ipairs(owned_relics) do
+			love.graphics.print("  [" .. item.icon .. "] " .. item.name, section_x + 14, owned_y + i * 14)
+		end
+		local mod_header_y = owned_y + (#owned_relics + 1) * 14
+		love.graphics.setColor(
+			UI.colors.item_scope_diemod[1],
+			UI.colors.item_scope_diemod[2],
+			UI.colors.item_scope_diemod[3],
+			0.9
+		)
+		love.graphics.print("Die Mods:", section_x + 14, mod_header_y)
+		love.graphics.setColor(UI.colors.text_dim)
+		for i, label in ipairs(owned_mod_lines) do
+			love.graphics.print("  " .. label, section_x + 14, mod_header_y + i * 14)
 		end
 	end
 end
@@ -738,13 +802,24 @@ function ShopState:drawDieReplaceOverlay(player, W, H)
 
 	love.graphics.setFont(Fonts.get(20))
 	UI.setColor(UI.colors.text)
-	love.graphics.printf("Replace which die?", px, py + 15, panel_w, "center")
+	local title = "Replace which die?"
+	if replace_mode == "item" and selected_shop_item then
+		local item = shop and shop.items_inventory[selected_shop_item]
+		if item then
+			title = "Apply " .. item.name .. " to which die?"
+		else
+			title = "Apply Die Mod to which die?"
+		end
+	end
+	love.graphics.printf(title, px, py + 15, panel_w, "center")
 
 	local grid_x = px + (panel_w - grid_w) / 2
 	local grid_y = py + 50
 
 	local mx, my = love.mouse.getPosition()
 	self._replace_die_buttons = {}
+	local hovered_die = nil
+	local hovered_dx, hovered_dy = 0, 0
 
 	for i, die in ipairs(player.dice_pool) do
 		local col = (i - 1) % cols
@@ -752,8 +827,12 @@ function ShopState:drawDieReplaceOverlay(player, W, H)
 		local dx = grid_x + col * (die_size + gap)
 		local dy = grid_y + row * row_h
 		local hovered = UI.pointInRect(mx, my, dx, dy, die_size, die_size)
+		if hovered then
+			hovered_die = die
+			hovered_dx, hovered_dy = dx, dy
+		end
 		local dot_color = die_colors_map[die.color] or UI.colors.die_black
-		UI.drawDie(dx, dy, die_size, die.value, dot_color, nil, false, hovered, die.glow_color)
+		UI.drawDie(dx, dy, die_size, die.value, dot_color, nil, false, hovered, die.glow_color, false, die.items)
 		self._replace_die_buttons[i] = { x = dx, y = dy, w = die_size, h = die_size }
 
 		if replace_focus == i then
@@ -765,11 +844,56 @@ function ShopState:drawDieReplaceOverlay(player, W, H)
 		love.graphics.printf(die.name, dx - 5, dy + die_size + 2, die_size + 10, "center")
 	end
 
+	if hovered_die then
+		self:drawDieModTooltip(hovered_die, hovered_dx + die_size * 0.5, hovered_dy, W, H)
+	end
+
 	local btn_y = py + panel_h - 40
 	self._cancel_replace_hovered =
 		UI.drawButton("CANCEL", px + panel_w / 2 - 60, btn_y, 120, 32, { font = Fonts.get(16), color = UI.colors.red })
 	if replace_focus == 0 then
 		UI.drawFocusRect(px + panel_w / 2 - 60, btn_y, 120, 32)
+	end
+end
+
+function ShopState:drawDieModTooltip(die, anchor_x, anchor_y, W, H)
+	local mods = die.items or {}
+	if #mods == 0 then
+		return
+	end
+
+	local pad = 10
+	local tip_w = 220
+	local tip_h = pad + 20 + 16 + #mods * 13 + pad
+	local tip_x = math.max(8, math.min(anchor_x - tip_w / 2, W - tip_w - 8))
+	local tip_y = anchor_y - tip_h - 10
+	if tip_y < 65 then
+		tip_y = anchor_y + 56
+	end
+	tip_y = math.max(55, math.min(tip_y, H - tip_h - 8))
+
+	love.graphics.setColor(0.08, 0.08, 0.16, 0.95)
+	UI.roundRect("fill", tip_x, tip_y, tip_w, tip_h, 8)
+	love.graphics.setLineWidth(1.5)
+	love.graphics.setColor(UI.colors.item_scope_diemod[1], UI.colors.item_scope_diemod[2], UI.colors.item_scope_diemod[3], 0.9)
+	UI.roundRect("line", tip_x, tip_y, tip_w, tip_h, 8)
+	love.graphics.setLineWidth(1)
+
+	local y = tip_y + pad
+	love.graphics.setFont(Fonts.get(14))
+	UI.setColor(UI.colors.item_scope_diemod)
+	love.graphics.printf(die.name, tip_x + pad, y, tip_w - pad * 2, "center")
+	y = y + 20
+
+	love.graphics.setFont(Fonts.get(11))
+	love.graphics.setColor(UI.colors.item_scope_diemod[1], UI.colors.item_scope_diemod[2], UI.colors.item_scope_diemod[3], 0.85)
+	love.graphics.printf("Die Mods", tip_x + pad, y, tip_w - pad * 2, "left")
+	y = y + 16
+
+	UI.setColor(UI.colors.text_dim)
+	for _, item in ipairs(mods) do
+		love.graphics.printf("[" .. item.icon .. "] " .. item.name, tip_x + pad, y, tip_w - pad * 2, "left")
+		y = y + 13
 	end
 end
 
@@ -781,7 +905,12 @@ function ShopState:mousepressed(x, y, button, player)
 	if replacing_die then
 		for i, btn in pairs(self._replace_die_buttons or {}) do
 			if UI.pointInRect(x, y, btn.x, btn.y, btn.w, btn.h) then
-				local ok, msg = shop:buyDie(player, selected_shop_die, i)
+				local ok, msg
+				if replace_mode == "item" and selected_shop_item then
+					ok, msg = shop:buyItem(player, selected_shop_item, i)
+				else
+					ok, msg = shop:buyDie(player, selected_shop_die, i)
+				end
 				if ok then
 					Toast.success(msg)
 					Particles.sparkle(x, y, UI.colors.green_light, 15)
@@ -790,12 +919,16 @@ function ShopState:mousepressed(x, y, button, player)
 				end
 				replacing_die = false
 				selected_shop_die = nil
+				selected_shop_item = nil
+				replace_mode = "die"
 				return nil
 			end
 		end
 		if self._cancel_replace_hovered then
 			replacing_die = false
 			selected_shop_die = nil
+			selected_shop_item = nil
+			replace_mode = "die"
 			return nil
 		end
 		return nil
@@ -843,6 +976,8 @@ function ShopState:mousepressed(x, y, button, player)
 			end
 			replacing_die = true
 			selected_shop_die = i
+			selected_shop_item = nil
+			replace_mode = "die"
 			replace_focus = 1
 			return nil
 		end
@@ -850,12 +985,25 @@ function ShopState:mousepressed(x, y, button, player)
 
 	for i, btn in pairs(self._item_buttons or {}) do
 		if btn.hovered then
-			local ok, msg = shop:buyItem(player, i)
-			if ok then
-				Toast.success(msg)
-				Particles.sparkle(x, y, UI.colors.green_light, 15)
+			local item = shop.items_inventory[i]
+			if item and item.target_scope == "dice" then
+				if player.currency < item.cost then
+					Toast.error("Not enough currency")
+					return nil
+				end
+				replacing_die = true
+				selected_shop_item = i
+				selected_shop_die = nil
+				replace_mode = "item"
+				replace_focus = 1
 			else
-				Toast.error(msg)
+				local ok, msg = shop:buyItem(player, i)
+				if ok then
+					Toast.success(msg)
+					Particles.sparkle(x, y, UI.colors.green_light, 15)
+				else
+					Toast.error(msg)
+				end
 			end
 			return nil
 		end
@@ -938,8 +1086,15 @@ function ShopState:keypressed(key, player)
 			if replace_focus == 0 then
 				replacing_die = false
 				selected_shop_die = nil
+				selected_shop_item = nil
+				replace_mode = "die"
 			elseif replace_focus >= 1 and replace_focus <= count then
-				local ok, msg = shop:buyDie(player, selected_shop_die, replace_focus)
+				local ok, msg
+				if replace_mode == "item" and selected_shop_item then
+					ok, msg = shop:buyItem(player, selected_shop_item, replace_focus)
+				else
+					ok, msg = shop:buyDie(player, selected_shop_die, replace_focus)
+				end
 				if ok then
 					Toast.success(msg)
 				else
@@ -947,10 +1102,14 @@ function ShopState:keypressed(key, player)
 				end
 				replacing_die = false
 				selected_shop_die = nil
+				selected_shop_item = nil
+				replace_mode = "die"
 			end
 		elseif key == "escape" then
 			replacing_die = false
 			selected_shop_die = nil
+			selected_shop_item = nil
+			replace_mode = "die"
 		end
 		return nil
 	end
@@ -997,14 +1156,29 @@ function ShopState:keypressed(key, player)
 				else
 					replacing_die = true
 					selected_shop_die = shop_row
+					selected_shop_item = nil
+					replace_mode = "die"
 					replace_focus = 1
 				end
 			elseif shop_col == 2 and shop_row >= 1 and shop_row <= #shop.items_inventory then
-				local ok, msg = shop:buyItem(player, shop_row)
-				if ok then
-					Toast.success(msg)
+				local item = shop.items_inventory[shop_row]
+				if item and item.target_scope == "dice" then
+					if player.currency < item.cost then
+						Toast.error("Not enough currency")
+					else
+						replacing_die = true
+						selected_shop_item = shop_row
+						selected_shop_die = nil
+						replace_mode = "item"
+						replace_focus = 1
+					end
 				else
-					Toast.error(msg)
+					local ok, msg = shop:buyItem(player, shop_row)
+					if ok then
+						Toast.success(msg)
+					else
+						Toast.error(msg)
+					end
 				end
 			elseif shop_col == 3 and shop_row >= 1 and shop_row <= #shop_visible_hands then
 				local kb_bulk = (player.limit_break_count >= 1) and BULK_OPTIONS[bulk_index] or 1
