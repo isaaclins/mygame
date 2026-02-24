@@ -5,8 +5,10 @@ local Tween = require("functions/tween")
 local Particles = require("functions/particles")
 local Toast = require("functions/toast")
 local Settings = require("functions/settings")
+local Verbose = require("functions/verbose")
 local Tutorial = require("states/tutorial")
 local CoinAnim = require("functions/coin_anim")
+local StickerEffects = require("functions/sticker_effects")
 
 local Round = {}
 
@@ -52,6 +54,7 @@ local selected_die_index = nil
 local tooltip_visible = true
 local last_input_keyboard = false
 local last_mouse_x, last_mouse_y = 0, 0
+local chaos_status = { aborted = false, trigger_count = 0, chaos_score = 0 }
 
 local die_anims = {}
 local pre_roll_anim = { scale = 0, alpha = 0, target_count = 0 }
@@ -130,6 +133,35 @@ local function getActiveHandNames(combo)
 	return names
 end
 
+local function getStickerSummary(die)
+	local entries = {}
+	local total_stacks = 0
+	for id, st in pairs(die.stickers or {}) do
+		local stacks = st.stacks or 0
+		if stacks > 0 then
+			total_stacks = total_stacks + stacks
+			local label = st.name or id
+			table.insert(entries, label .. " x" .. stacks)
+		end
+	end
+	table.sort(entries)
+	return entries, total_stacks
+end
+
+local function formatDiceState(dice_pool)
+	local parts = {}
+	for i, die in ipairs(dice_pool or {}) do
+		parts[#parts + 1] = string.format(
+			"#%d:%s=%d%s",
+			i,
+			tostring(die.name),
+			tonumber(die.value) or -1,
+			die.locked and "(L)" or ""
+		)
+	end
+	return table.concat(parts, " | ")
+end
+
 function Round:init(player, boss)
 	sub_state = "pre_roll"
 	pre_roll_timer = 1.2
@@ -154,6 +186,17 @@ function Round:init(player, boss)
 	boss_context = { player = player }
 	if boss then
 		boss:applyModifier(boss_context)
+	end
+
+	chaos_status = StickerEffects.getGuardStatus()
+	player.chaos_pressure = chaos_status.chaos_score or 0
+	if player.sticker_instant_death then
+		sub_state = "scoring"
+		round_score = 0
+		round_combo = {}
+		currency_breakdown = {}
+		dice_ability_results = { "Cursed fate triggered: " .. (player.sticker_death_reason or "sticker") }
+		score_display_timer = 2.5
 	end
 
 	resetDieAnims(player)
@@ -221,6 +264,7 @@ function Round:update(dt, player)
 	elseif sub_state == "rolling" then
 		local all_done = player:updateDiceRolls(dt)
 		if all_done and not player:anyDiceRolling() then
+			StickerEffects.dispatchForPlayer("onPostRoll", player, { player = player, phase = "post_roll" })
 			if boss_context and boss_context.invert_dice then
 				for _, die in ipairs(player.dice_pool) do
 					if not die.locked then
@@ -245,6 +289,9 @@ function Round:update(dt, player)
 			end
 
 			sub_state = "choosing"
+			Verbose.log("roll", "post_roll -> " .. formatDiceState(player.dice_pool))
+			chaos_status = StickerEffects.getGuardStatus()
+			player.chaos_pressure = chaos_status.chaos_score or 0
 			self:applySortMode(player)
 			self:updatePreview(player)
 			self:slideInPanels()
@@ -255,6 +302,7 @@ function Round:update(dt, player)
 	elseif sub_state == "rerolling" then
 		local all_done = player:updateDiceRolls(dt)
 		if all_done and not player:anyDiceRolling() then
+			StickerEffects.dispatchForPlayer("onPostRoll", player, { player = player, phase = "post_reroll" })
 			if boss_context and boss_context.invert_dice then
 				for _, die in ipairs(player.dice_pool) do
 					if not die.locked then
@@ -282,6 +330,9 @@ function Round:update(dt, player)
 				end
 			end
 			sub_state = "choosing"
+			Verbose.log("roll", "post_reroll -> " .. formatDiceState(player.dice_pool))
+			chaos_status = StickerEffects.getGuardStatus()
+			player.chaos_pressure = chaos_status.chaos_score or 0
 			self:applySortMode(player)
 			self:updatePreview(player)
 		end
@@ -366,6 +417,7 @@ function Round:updatePreview(player)
 		return
 	end
 	local values = player:getDiceValues()
+	Verbose.log("preview", "values=[" .. table.concat(values, ",") .. "]")
 	local context = {
 		player = player,
 		dice_pool = player.dice_pool,
@@ -374,6 +426,16 @@ function Round:updatePreview(player)
 		mult_bonus = 0,
 		score_mult = 1,
 	}
+	StickerEffects.dispatchForPlayer("onPreScore", player, context)
+	Verbose.logf(
+		"preview",
+		"after stickers bonus=%s mult_bonus=%s score_mult=%s",
+		tostring(context.bonus),
+		tostring(context.mult_bonus),
+		tostring(context.score_mult)
+	)
+	chaos_status = StickerEffects.getGuardStatus()
+	player.chaos_pressure = chaos_status.chaos_score or 0
 
 	if not (boss_context and boss_context.suppress_abilities) then
 		for _, die in ipairs(player.dice_pool) do
@@ -386,9 +448,23 @@ function Round:updatePreview(player)
 	local saved_triggers = player:getItemTriggerSnapshot()
 	player:applyItems(context)
 	player:restoreItemTriggerSnapshot(saved_triggers)
+	Verbose.logf(
+		"preview",
+		"after items bonus=%s mult_bonus=%s score_mult=%s",
+		tostring(context.bonus),
+		tostring(context.mult_bonus),
+		tostring(context.score_mult)
+	)
 
 	local combo, hand_total = Scoring.findOptimalCombination(values, player.hands)
 	preview_combo = combo
+	if #combo > 0 then
+		local labels = {}
+		for _, entry in ipairs(combo) do
+			labels[#labels + 1] = Scoring.comboEntryName(entry) .. "=" .. tostring(entry.score)
+		end
+		Verbose.log("preview", "combo " .. table.concat(labels, " + "))
+	end
 
 	if not (boss_context and boss_context.suppress_abilities) then
 		local matched_counts = {}
@@ -419,6 +495,15 @@ function Round:updatePreview(player)
 		score = math.floor(score * preview_score_mult)
 	end
 	preview_score = score
+	Verbose.logf(
+		"preview",
+		"final score=floor((%s + %s) * (1+%s) * %s) => %s",
+		tostring(hand_total),
+		tostring(preview_bonus),
+		tostring(preview_mult_bonus),
+		tostring(preview_score_mult),
+		tostring(preview_score)
+	)
 end
 
 function Round:drawScorePreview(player, W, H)
@@ -768,7 +853,8 @@ function Round:drawDice(player, W, H)
 				die.items,
 				lock_click,
 				lock_click_mode,
-				die.locked
+				die.locked,
+				die.stickers
 			)
 			love.graphics.pop()
 		else
@@ -786,7 +872,8 @@ function Round:drawDice(player, W, H)
 				die.items,
 				lock_click,
 				lock_click_mode,
-				die.locked
+				die.locked,
+				die.stickers
 			)
 		end
 
@@ -844,12 +931,26 @@ function Round:drawDice(player, W, H)
 		UI.setColor(UI.colors.text_dim)
 		love.graphics.printf(die.name, dx - 4, dy + layout.die_size + 4, layout.die_size + 8, "center")
 
+		local sticker_entries, sticker_total = getStickerSummary(die)
+
 		if die.ability_name ~= "None" and die.ability_name ~= "Broken" then
 			UI.setColor(die.glow_color or UI.colors.accent_dim)
 			love.graphics.printf(
 				die.ability_name,
 				dx - 4,
 				dy + layout.die_size + 4 + layout.label_font + 2,
+				layout.die_size + 8,
+				"center"
+			)
+		end
+
+		if sticker_total > 0 then
+			love.graphics.setFont(Fonts.get(math.max(9, layout.label_font - 1)))
+			love.graphics.setColor(0.35, 0.90, 1.0, 0.95)
+			love.graphics.printf(
+				"Stickers: " .. tostring(#sticker_entries) .. " (" .. tostring(sticker_total) .. "x)",
+				dx - 4,
+				dy + layout.die_size + 4 + layout.label_font + 14,
 				layout.die_size + 8,
 				"center"
 			)
@@ -880,6 +981,7 @@ function Round:drawDieTooltip(info, dx, dy, s, W, H)
 	local has_ability = die.ability_name ~= "None" and die.ability_name ~= "Broken"
 	local has_combo_info = (sub_state == "choosing" and #preview_combo > 0) or (sub_state == "scoring" and #round_combo > 0)
 	local mod_items = die.items or {}
+	local sticker_entries, sticker_total = getStickerSummary(die)
 	local desc_font = Fonts.get(11)
 	local desc_lines = 0
 	if has_ability and die.ability_desc and #die.ability_desc > 0 then
@@ -891,6 +993,7 @@ function Round:drawDieTooltip(info, dx, dy, s, W, H)
 		+ 20
 		+ (has_ability and (16 + desc_lines * 13 + 6) or 0)
 		+ (#mod_items > 0 and (18 + #mod_items * 13 + 6) or 0)
+		+ (#sticker_entries > 0 and (18 + #sticker_entries * 13 + 6) or 0)
 		+ 2
 		+ 18
 		+ (has_combo_info and 18 or 0)
@@ -943,6 +1046,20 @@ function Round:drawDieTooltip(info, dx, dy, s, W, H)
 		UI.setColor(UI.colors.text_dim)
 		for _, mod in ipairs(mod_items) do
 			love.graphics.printf("[" .. mod.icon .. "] " .. mod.name, tip_x + pad, ly, tip_w - pad * 2, "left")
+			ly = ly + 13
+		end
+		ly = ly + 6
+	end
+
+	if #sticker_entries > 0 then
+		love.graphics.setFont(Fonts.get(11))
+		love.graphics.setColor(0.35, 0.90, 1.0, 0.95)
+		love.graphics.printf("Stickers (" .. sticker_total .. "x)", tip_x + pad, ly, tip_w - pad * 2, "left")
+		ly = ly + 16
+		love.graphics.setFont(Fonts.get(11))
+		UI.setColor(UI.colors.text_dim)
+		for _, line in ipairs(sticker_entries) do
+			love.graphics.printf(line, tip_x + pad, ly, tip_w - pad * 2, "left")
 			ly = ly + 13
 		end
 		ly = ly + 6
@@ -1549,6 +1666,7 @@ end
 
 function Round:calculateScore(player)
 	local values = player:getDiceValues()
+	Verbose.log("score", "values=[" .. table.concat(values, ",") .. "]")
 	local context = {
 		player = player,
 		dice_pool = player.dice_pool,
@@ -1557,6 +1675,16 @@ function Round:calculateScore(player)
 		mult_bonus = 0,
 		score_mult = 1,
 	}
+	StickerEffects.dispatchForPlayer("onPreScore", player, context)
+	Verbose.logf(
+		"score",
+		"after stickers bonus=%s mult_bonus=%s score_mult=%s",
+		tostring(context.bonus),
+		tostring(context.mult_bonus),
+		tostring(context.score_mult)
+	)
+	chaos_status = StickerEffects.getGuardStatus()
+	player.chaos_pressure = chaos_status.chaos_score or 0
 
 	dice_ability_results = {}
 	if not (boss_context and boss_context.suppress_abilities) then
@@ -1585,10 +1713,24 @@ function Round:calculateScore(player)
 	end
 
 	player:applyItems(context)
+	Verbose.logf(
+		"score",
+		"after items bonus=%s mult_bonus=%s score_mult=%s",
+		tostring(context.bonus),
+		tostring(context.mult_bonus),
+		tostring(context.score_mult)
+	)
 
 	local combo, hand_total = Scoring.findOptimalCombination(values, player.hands)
 	round_combo = combo
 	round_hand_total = hand_total
+	if #combo > 0 then
+		local labels = {}
+		for _, entry in ipairs(combo) do
+			labels[#labels + 1] = Scoring.comboEntryName(entry) .. "=" .. tostring(entry.score)
+		end
+		Verbose.log("score", "combo " .. table.concat(labels, " + "))
+	end
 
 	if not (boss_context and boss_context.suppress_abilities) then
 		local matched_counts = {}
@@ -1625,6 +1767,15 @@ function Round:calculateScore(player)
 	end
 
 	round_score = score
+	Verbose.logf(
+		"score",
+		"final score=floor((%s + %s) * (1+%s) * %s) => %s",
+		tostring(hand_total),
+		tostring(round_bonus),
+		tostring(round_mult_bonus),
+		tostring(round_score_mult),
+		tostring(round_score)
+	)
 	return score
 end
 
@@ -1640,6 +1791,7 @@ local function isDieBossLocked(die)
 end
 
 local function doLockDie(self, player, idx)
+	StickerEffects.resetOnInput(player)
 	local die = player.dice_pool[idx]
 	if not die then
 		return
@@ -1657,6 +1809,14 @@ local function doLockDie(self, player, idx)
 
 	local was_locked = die.locked
 	player:lockDie(idx)
+	Verbose.logf(
+		"input",
+		"toggle lock idx=%d die=%s %s->%s",
+		idx,
+		tostring(die.name),
+		tostring(was_locked),
+		tostring(die.locked)
+	)
 	local da = die_anims[idx]
 	if da then
 		da.pop_scale = die.locked and 1.025 or 0.985
@@ -1682,9 +1842,17 @@ end
 local RNG = require("functions/rng")
 
 local function doReroll(player)
+	StickerEffects.resetOnInput(player)
 	if player.rerolls_remaining <= 0 then
+		Verbose.log("input", "reroll denied: no rerolls left")
 		return false
 	end
+	Verbose.logf(
+		"input",
+		"reroll start rerolls=%d dice=%s",
+		player.rerolls_remaining,
+		formatDiceState(player.dice_pool)
+	)
 
 	for _, die in ipairs(player.dice_pool) do
 		if not die.locked and die.die_type == "glass" then
@@ -1705,6 +1873,7 @@ local function doReroll(player)
 	end
 
 	player:rerollUnlocked()
+	Verbose.logf("input", "reroll spent -> rerolls=%d", player.rerolls_remaining)
 	sub_state = "rerolling"
 	if Tutorial:isActive() then
 		Tutorial:notifyAction("reroll")
@@ -1713,7 +1882,10 @@ local function doReroll(player)
 end
 
 local function doScore(self, player)
+	StickerEffects.resetOnInput(player)
 	local score = self:calculateScore(player)
+	Verbose.logf("input", "score submitted=%d target=%d", score, player:getTargetScore())
+	StickerEffects.dispatchForPlayer("onRoundEnd", player, { player = player, score = score, phase = "round_end" })
 	sub_state = "scoring"
 	score_display_timer = 0
 	score_panel_anim = { alpha = 0, scale = 0.8 }
@@ -1812,6 +1984,7 @@ function Round:mousepressed(x, y, button, player)
 	end
 
 	if sub_state == "choosing" then
+		StickerEffects.resetOnInput(player)
 		local W, H = love.graphics.getDimensions()
 		local count = #player.dice_pool
 		local layout = getDiceLayout(count, W, H)
@@ -1901,6 +2074,7 @@ function Round:keypressed(key, player)
 	end
 
 	if sub_state == "choosing" then
+		StickerEffects.resetOnInput(player)
 		local count = #player.dice_pool
 		local shift_held = love.keyboard.isDown("lshift") or love.keyboard.isDown("rshift")
 

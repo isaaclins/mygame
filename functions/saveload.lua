@@ -63,6 +63,7 @@ function SaveLoad.serializeDie(die)
 		max_upgrade = die.max_upgrade,
 		weights = {},
 		items = {},
+		stickers = die.getSerializedStickers and die:getSerializedStickers() or {},
 	}
 	for i, w in ipairs(die.weights) do
 		data.weights[i] = w
@@ -221,6 +222,7 @@ function SaveLoad.restorePlayer(data, Player, Die, createDiceTypes, createItems,
 			max_upgrade = dd.max_upgrade or 3,
 			weights = dd.weights,
 			glow_color = dd.glow_color,
+			stickers = dd.stickers or {},
 		})
 		die.locked = dd.locked or false
 		die.wild_choice = dd.wild_choice

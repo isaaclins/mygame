@@ -1,4 +1,5 @@
 local Class = require("objects/class")
+local StickerEffects = require("functions/sticker_effects")
 local Player = Class:extend()
 
 function Player:init()
@@ -15,6 +16,10 @@ function Player:init()
 	self.free_choice_used = false
 	self.limit_break_count = 0
 	self.interest_cap = 5
+	self.sticker_instant_death = false
+	self.sticker_death_reason = nil
+	self.sticker_guard_tripped = false
+	self.chaos_pressure = 0
 end
 
 function Player:rollAllDice()
@@ -86,6 +91,7 @@ end
 
 function Player:replaceDie(index, new_die)
 	if index >= 1 and index <= #self.dice_pool then
+		StickerEffects.dispatchForDie("onBeforeDieReplace", self.dice_pool[index], { player = self, replacement = new_die })
 		new_die._sort_order = self.dice_pool[index]._sort_order
 		self.dice_pool[index] = new_die
 	end
@@ -257,6 +263,9 @@ function Player:restoreItemTriggerSnapshot(snapshot)
 end
 
 function Player:startNewRound()
+	self.sticker_instant_death = false
+	self.sticker_death_reason = nil
+	self.sticker_guard_tripped = false
 	self.max_rerolls = self.base_rerolls
 	self.rerolls_remaining = self.max_rerolls
 	self.free_choice_used = false
@@ -279,12 +288,19 @@ function Player:startNewRound()
 			end
 		end
 	end
+
+	StickerEffects.beginRound(self)
 end
 
 function Player:getTargetScore()
 	local base = 40
 	local scaling = 1.35
-	return math.floor(base * (scaling ^ (self.round - 1)))
+	local target = base * (scaling ^ (self.round - 1))
+	if self:isBossRound() and (self.chaos_pressure or 0) > 0 then
+		local reactive = 1 + math.min(2.0, self.chaos_pressure / 120)
+		target = target * reactive
+	end
+	return math.floor(target)
 end
 
 function Player:earnCurrency(score)

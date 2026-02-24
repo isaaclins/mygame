@@ -6,6 +6,7 @@ function Shop:init()
 	self.hand_upgrades = {}
 	self.dice_inventory = {}
 	self.items_inventory = {}
+	self.stickers_inventory = {}
 	self.free_choice_used = false
 	self.selected_section = 1
 	self._dice_templates = {}
@@ -63,7 +64,7 @@ function Shop:ensureDiceOffers(target_count)
 	end
 end
 
-function Shop:generate(player, all_dice_types, all_items)
+function Shop:generate(player, all_dice_types, all_items, all_stickers)
 	self.free_choice_used = player.free_choice_used
 	self._dice_templates = {}
 	for _, dt in ipairs(all_dice_types) do
@@ -105,8 +106,11 @@ function Shop:generate(player, all_dice_types, all_items)
 		if item.condition and not item.condition(player) then
 			goto continue_item
 		end
-		local is_dice_item = item.target_scope == "dice"
-		local is_repeatable = item.consumable or is_dice_item
+		-- Die-scoped mods are replaced by stickers and should not appear as relic offers.
+		if item.target_scope == "dice" then
+			goto continue_item
+		end
+		local is_repeatable = item.consumable
 		local owned = isOwnedPersonalItem(player, item.name)
 		if is_repeatable or not owned then
 			if item.dynamic_cost then
@@ -118,8 +122,47 @@ function Shop:generate(player, all_dice_types, all_items)
 	end
 	for i = 1, math.min(3, #avail_items) do
 		local idx = RNG.random(1, #avail_items)
-		table.insert(self.items_inventory, avail_items[idx])
+		local item = avail_items[idx]
+		table.insert(self.items_inventory, {
+			kind = "item",
+			data = item,
+			name = item.name,
+			description = item.description,
+			icon = item.icon,
+			cost = item.cost,
+			rarity = "relic",
+		})
 		table.remove(avail_items, idx)
+	end
+
+	self.stickers_inventory = {}
+	local avail_stickers = {}
+	for _, st in ipairs(all_stickers or {}) do
+		table.insert(avail_stickers, st:clone())
+	end
+	for i = 1, math.min(3, #avail_stickers) do
+		local idx = RNG.random(1, #avail_stickers)
+		local sticker = avail_stickers[idx]
+		local rarity_cost = {
+			common = 8,
+			uncommon = 12,
+			rare = 16,
+			epic = 22,
+			legendary = 30,
+			curse = 14,
+		}
+		local cost = rarity_cost[sticker.rarity] or 12
+		table.insert(self.items_inventory, {
+			kind = "sticker",
+			data = sticker,
+			name = sticker.name,
+			description = sticker.description,
+			icon = "ST",
+			cost = cost,
+			rarity = sticker.rarity,
+			stack_label = sticker:getStackLabel(),
+		})
+		table.remove(avail_stickers, idx)
 	end
 end
 
@@ -240,12 +283,16 @@ function Shop:buyDie(player, shop_die_index, player_die_index)
 end
 
 function Shop:buyItem(player, item_index, target_die_index)
-	local item = self.items_inventory[item_index]
-	if not item then
+	local entry = self.items_inventory[item_index]
+	if not entry then
 		return false, "Invalid item"
 	end
+	if entry.kind == "sticker" then
+		return false, "Select a die to apply this sticker"
+	end
+	local item = entry.data
 
-	if player.currency < item.cost then
+	if player.currency < entry.cost then
 		return false, "Not enough currency"
 	end
 
@@ -254,9 +301,11 @@ function Shop:buyItem(player, item_index, target_die_index)
 		if result == false then
 			return false, "Cannot use!"
 		end
-		player.currency = player.currency - item.cost
+		player.currency = player.currency - entry.cost
 		if item.dynamic_cost then
-			item.cost = item.dynamic_cost(player)
+			local next_cost = item.dynamic_cost(player)
+			item.cost = next_cost
+			entry.cost = next_cost
 		else
 			table.remove(self.items_inventory, item_index)
 		end
@@ -269,17 +318,38 @@ function Shop:buyItem(player, item_index, target_die_index)
 			return false, "Pick a target die"
 		end
 		local purchased = item:clone()
-		player.currency = player.currency - item.cost
+		player.currency = player.currency - entry.cost
 		target_die:addItem(purchased)
 		table.remove(self.items_inventory, item_index)
 		return true, "Die Mod applied!"
 	end
 
-	local purchased = item:clone()
-	player.currency = player.currency - item.cost
+	local purchased = item.clone and item:clone() or item
+	player.currency = player.currency - entry.cost
 	player:addItem(purchased)
 	table.remove(self.items_inventory, item_index)
 	return true, "Relic purchased!"
+end
+
+function Shop:buySticker(player, entry_index, die_index)
+	local entry = self.items_inventory[entry_index]
+	if not entry or entry.kind ~= "sticker" then
+		return false, "Invalid sticker"
+	end
+	local die = player.dice_pool[die_index]
+	if not die then
+		return false, "Invalid die"
+	end
+	if player.currency < entry.cost then
+		return false, "Not enough currency"
+	end
+	local ok, err = die:addSticker(entry.data, 1)
+	if not ok then
+		return false, err or "Cannot apply sticker"
+	end
+	player.currency = player.currency - entry.cost
+	table.remove(self.items_inventory, entry_index)
+	return true, "Sticker applied!"
 end
 
 return Shop

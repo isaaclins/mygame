@@ -73,14 +73,6 @@ local function createDiceTypes()
 			glow_color = { 1.0, 0.84, 0.0, 0.6 },
 		}),
 		Die:new({
-			name = "Mirror Die",
-			color = "blue",
-			die_type = "mirror",
-			ability_name = "Reflection",
-			ability_desc = "Flips value after rolling (1/6, 2/5, 3/4).",
-			glow_color = { 0.5, 0.3, 0.9, 0.6 },
-		}),
-		Die:new({
 			name = "Echo Die",
 			color = "blue",
 			die_type = "echo",

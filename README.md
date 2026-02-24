@@ -182,6 +182,25 @@ make dev
 
 Requires `fswatch` (`brew install fswatch` on macOS). Falls back to 1-second polling if not installed.
 
+### Sticker SVG Pipeline
+
+Sticker artwork uses SVG as source and PNG as runtime texture for LÖVE.
+
+```bash
+make stickers
+```
+
+This converts `content/stickers/*.svg` into matching `*.png` files (same name) using the first available renderer:
+- `rsvg-convert` (librsvg)
+- `inkscape`
+- `magick` (ImageMagick)
+
+Optional output size:
+
+```bash
+STICKER_SIZE=768 make stickers
+```
+
 ---
 
 ## Building

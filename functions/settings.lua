@@ -11,6 +11,7 @@ local defaults = {
 	vsync = true,
 	fullscreen = false,
 	dice_sort_mode = "default",
+	sticker_debug_telemetry = false,
 	keybind_select_next = "tab",
 	keybind_move_left = "left",
 	keybind_move_right = "right",

@@ -20,6 +20,8 @@ function Die:init(opts)
 	self.items = opts.items or {}
 
 	self.weights = opts.weights or { 1, 1, 1, 1, 1, 1 }
+	self.stickers = opts.stickers or {}
+	self._sticker_state = opts._sticker_state or {}
 end
 
 function Die:addItem(item)
@@ -62,10 +64,6 @@ function Die:roll()
 			self.value = i
 			break
 		end
-	end
-
-	if self.die_type == "mirror" then
-		self.value = 7 - self.value
 	end
 
 	return self.value
@@ -136,7 +134,163 @@ function Die:clone()
 		weights = { unpack(self.weights) },
 		glow_color = self.glow_color,
 		items = copied_items,
+		stickers = self:getSerializedStickers(),
 	})
+end
+
+function Die:getSticker(id)
+	return self.stickers and self.stickers[id] or nil
+end
+
+function Die:getStickerStacks(id)
+	local st = self:getSticker(id)
+	return st and (st.stacks or 0) or 0
+end
+
+function Die:getDistinctStickerCount()
+	local count = 0
+	for _, st in pairs(self.stickers or {}) do
+		if (st.stacks or 0) > 0 then
+			count = count + 1
+		end
+	end
+	return count
+end
+
+function Die:hasSticker(id)
+	return self:getStickerStacks(id) > 0
+end
+
+function Die:_getEffectiveStackLimit(sticker_def)
+	local id = sticker_def.id
+	if id ~= "all_in" and self:hasSticker("all_in") then
+		return math.huge
+	end
+	if sticker_def.stackable then
+		return sticker_def.stack_limit or 1
+	end
+	return 1
+end
+
+function Die:canAddSticker(sticker_def, requested_stacks)
+	if not sticker_def or not sticker_def.id then
+		return false, "Invalid sticker"
+	end
+	requested_stacks = requested_stacks or 1
+	if requested_stacks < 1 then
+		return false, "Invalid stack amount"
+	end
+
+	local id = sticker_def.id
+	local existing = self:getSticker(id)
+	local distinct = self:getDistinctStickerCount()
+
+	if not existing and distinct >= 5 then
+		return false, "Max 5 different stickers per die"
+	end
+
+	local has_all_in = self:hasSticker("all_in")
+	if id == "all_in" then
+		local non_all_in = 0
+		for sid, st in pairs(self.stickers or {}) do
+			if sid ~= "all_in" and (st.stacks or 0) > 0 then
+				non_all_in = non_all_in + 1
+			end
+		end
+		if non_all_in > 1 then
+			return false, "All In needs at most one other sticker type"
+		end
+	elseif has_all_in and not existing then
+		local non_all_in = 0
+		for sid, st in pairs(self.stickers or {}) do
+			if sid ~= "all_in" and (st.stacks or 0) > 0 then
+				non_all_in = non_all_in + 1
+			end
+		end
+		if non_all_in >= 1 then
+			return false, "All In allows only one other sticker type"
+		end
+	end
+
+	local limit = self:_getEffectiveStackLimit(sticker_def)
+	local current = existing and (existing.stacks or 0) or 0
+	if current + requested_stacks > limit then
+		return false, "Sticker stack limit reached"
+	end
+	return true, nil
+end
+
+function Die:addSticker(sticker_def, stacks)
+	stacks = stacks or 1
+	local ok, err = self:canAddSticker(sticker_def, stacks)
+	if not ok then
+		return false, err
+	end
+
+	local id = sticker_def.id
+	local st = self.stickers[id]
+	if not st then
+		local ox = (RNG.random() * 0.24) - 0.12
+		local oy = (RNG.random() * 0.24) - 0.12
+		-- Avoid perfectly centered stickers so they read as "applied decal."
+		if math.abs(ox) < 0.03 and math.abs(oy) < 0.03 then
+			ox = (ox >= 0 and 0.05 or -0.05)
+			oy = (oy >= 0 and 0.05 or -0.05)
+		end
+		st = {
+			id = id,
+			name = sticker_def.name,
+			description = sticker_def.description,
+			rarity = sticker_def.rarity,
+			svg_path = sticker_def.svg_path,
+			stack_limit = sticker_def.stack_limit,
+			stackable = sticker_def.stackable,
+			stacks = 0,
+			angle = (RNG.random() * 40) - 20,
+			offset_x = ox,
+			offset_y = oy,
+			scale = 0.25 + RNG.random() * 0.5,
+		}
+		self.stickers[id] = st
+	end
+	st.stacks = st.stacks + stacks
+	return true, st.stacks
+end
+
+function Die:removeSticker(id, stacks)
+	stacks = stacks or 1
+	local st = self.stickers[id]
+	if not st then
+		return false
+	end
+	st.stacks = math.max(0, (st.stacks or 0) - stacks)
+	if st.stacks == 0 then
+		self.stickers[id] = nil
+	end
+	return true
+end
+
+function Die:getSerializedStickers()
+	local out = {}
+	for id, st in pairs(self.stickers or {}) do
+		if (st.stacks or 0) > 0 then
+			out[id] = {
+				id = id,
+				name = st.name,
+				description = st.description,
+				rarity = st.rarity,
+				svg_path = st.svg_path,
+				stack_limit = st.stack_limit,
+				stackable = st.stackable,
+				stacks = st.stacks,
+				angle = st.angle,
+				offset_x = st.offset_x,
+				offset_y = st.offset_y,
+				scale = st.scale,
+			}
+		end
+	end
+	return out
 end
 
 function Die:getDescription()

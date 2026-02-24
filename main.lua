@@ -3,10 +3,12 @@ local Die = require("objects/die")
 local createHands = require("content/hands")
 local createDiceTypes = require("content/dice_types")
 local createItems = require("content/items")
+local createStickers = require("content/stickers")
 local createBosses = require("content/bosses")
 local SaveLoad = require("functions/saveload")
 local RNG = require("functions/rng")
 local Settings = require("functions/settings")
+local Verbose = require("functions/verbose")
 local Tween = require("functions/tween")
 local Particles = require("functions/particles")
 local Transition = require("functions/transition")
@@ -33,6 +35,7 @@ local devmenu_open = false
 local player = nil
 local all_dice_types = nil
 local all_items = nil
+local all_stickers = nil
 local all_bosses = nil
 local current_boss = nil
 local current_seed = ""
@@ -83,6 +86,7 @@ local function initNewGame(seed)
 	player.seed = seed
 	all_dice_types = createDiceTypes()
 	all_items = createItems()
+	all_stickers = createStickers()
 	all_bosses = createBosses()
 
 	player.hands = createHands()
@@ -119,6 +123,7 @@ local function loadGame()
 
 	all_dice_types = createDiceTypes()
 	all_items = createItems()
+	all_stickers = createStickers()
 	all_bosses = createBosses()
 
 	player = SaveLoad.restorePlayer(data, Player, Die, createDiceTypes, createItems, createHands)
@@ -128,7 +133,7 @@ local function loadGame()
 
 	if data.state == "shop" then
 		state = "shop"
-		ShopState:init(player, all_dice_types, all_items)
+		ShopState:init(player, all_dice_types, all_items, all_stickers)
 	else
 		state = "round"
 		if player:isBossRound() then
@@ -159,6 +164,7 @@ local function startRound()
 end
 
 function love.load()
+	Verbose.init(arg or {})
 	love.graphics.setBackgroundColor(0.06, 0.06, 0.12)
 
 	local default_font = love.graphics.newFont(16)
@@ -559,6 +565,7 @@ function handleResult(result)
 			player.seed = seed
 			all_dice_types = createDiceTypes()
 			all_items = createItems()
+			all_stickers = createStickers()
 			all_bosses = createBosses()
 
 			current_boss = DevMenu:getSelectedBoss()
@@ -575,7 +582,7 @@ function handleResult(result)
 				current_boss:revertModifier(boss_ctx)
 			end
 			state = "shop"
-			ShopState:init(player, all_dice_types, all_items)
+			ShopState:init(player, all_dice_types, all_items, all_stickers)
 			saveGame()
 			if tutorial_active then
 				Tutorial:notifyStateChange("shop")

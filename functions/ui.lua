@@ -1,4 +1,5 @@
 local UI = {}
+local StickerAssets = require("functions/sticker_assets")
 
 UI.colors = {
 	bg = { 0.06, 0.06, 0.12, 1 },
@@ -178,7 +179,8 @@ function UI.drawDie(
 	die_mods,
 	lock_click,
 	lock_click_mode,
-	lock_overlay
+	lock_overlay,
+	stickers
 )
 	local r = size * 0.15
 
@@ -206,6 +208,66 @@ function UI.drawDie(
 	if hovered and not locked then
 		love.graphics.setColor(1, 1, 1, 0.12)
 		UI.roundRect("fill", x, y, size, size, r)
+	end
+
+	if not stickers and type(die_mods) == "table" then
+		local has_numeric = die_mods[1] ~= nil
+		local looks_like_stickers = false
+		for _, maybe in pairs(die_mods) do
+			if type(maybe) == "table" and maybe.stacks then
+				looks_like_stickers = true
+				break
+			end
+		end
+		if looks_like_stickers and not has_numeric then
+			stickers = die_mods
+			die_mods = nil
+		end
+	end
+
+	if stickers then
+		local ids = {}
+		for id, st in pairs(stickers) do
+			if (st.stacks or 0) > 0 then
+				table.insert(ids, id)
+			end
+		end
+		table.sort(ids)
+
+		-- Render one decal per stack so stack counts are visually faithful.
+		local stack_instances = {}
+		for _, id in ipairs(ids) do
+			local st = stickers[id]
+			local count = math.max(0, math.floor(st.stacks or 0))
+			for stack_i = 1, count do
+				stack_instances[#stack_instances + 1] = { st = st, stack_i = stack_i }
+			end
+		end
+
+		local total_instances = #stack_instances
+		for i, inst in ipairs(stack_instances) do
+			local st = inst.st
+			local layer_idx = i - 1
+			local theta = layer_idx * 2.399963229728653 -- golden angle (spiral)
+			local radius = math.min(0.22, 0.03 + 0.017 * math.sqrt(layer_idx + 1))
+			local dx = math.cos(theta) * radius
+			local dy = math.sin(theta) * radius
+			local size_falloff = 1 - math.min(0.35, layer_idx * 0.018)
+			local alpha = math.max(0.22, 0.42 - math.min(0.18, layer_idx * 0.01))
+			local draw_st = {
+				id = st.id,
+				name = st.name,
+				svg_path = st.svg_path,
+				angle = (st.angle or 0) + layer_idx * 8,
+				offset_x = (st.offset_x or 0) + dx,
+				offset_y = (st.offset_y or 0) + dy,
+				scale = math.max(0.12, (st.scale or 0.2) * size_falloff),
+			}
+			if total_instances <= 10 then
+				alpha = math.min(0.65, alpha + 0.07)
+			end
+			StickerAssets.drawSticker(draw_st, x, y, size, alpha)
+		end
 	end
 
 	local dot_r = size * 0.075

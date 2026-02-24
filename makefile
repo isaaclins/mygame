@@ -17,7 +17,7 @@ LOVE_APPLE_LIBS_URL := https://github.com/love2d/love/releases/download/$(LOVE_V
 
 EXCLUDE := -x './$(BUILD_DIR)/*' './.git/*' './.github/*' './.vscode/*' './docs/*' './makefile' './README.md' './.DS_Store' './.gitignore'
 
-.PHONY: build build-all build-macos build-windows build-linux build-ios run-ios-sim love run dev clean clean-all help
+.PHONY: build build-all build-macos build-windows build-linux build-ios run-ios-sim love run run-verbose dev stickers clean clean-all help
 
 # ─── Help (default) ──────────────────────────────────────────────────
 help:
@@ -31,10 +31,16 @@ help:
 	@echo "  make run-ios-sim     Install + run app on iOS Simulator"
 	@echo "  make love            Create .love archive only"
 	@echo "  make run             Run with love"
+	@echo "  make run-verbose     Run with verbose game traces"
 	@echo "  make dev             Watch for changes & auto-restart"
+	@echo "  make stickers        Render content/stickers/*.svg -> *.png"
 	@echo "  make clean           Remove build outputs"
 	@echo "  make clean-all       Remove entire build directory"
 	@echo ""
+
+# ─── Sticker rasterization ────────────────────────────────────────────
+stickers:
+	@bash ./scripts/render_stickers.sh
 
 # ─── Build all platforms ─────────────────────────────────────────────
 build-all: build-macos build-windows build-linux
@@ -177,7 +183,10 @@ run-ios-sim: build-ios
 
 # ─── Run ─────────────────────────────────────────────────────────────
 run:
-	@love .
+	@love . $(if $(VERBOSE),--verbose,) $(RUN_ARGS)
+
+run-verbose:
+	@love . --verbose
 
 # ─── Dev mode (watch & auto-restart) ─────────────────────────────────
 dev:
